@@ -5006,6 +5006,11 @@ function formatUtcTime(ms) {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
 
+// The slot (epoch ms) of the decode the operator is answering, so a
+// reply is scheduled in the opposite slot parity -- the one the far
+// station is listening in (see sendFt8Message() and ft8-bridge.js).
+// null for a fresh CQ or a manual send with no specific station.
+let ft8ReplySlotMs = null;
 link.addEventListener('ft8-decodes', (event) => {
   const { slotStartMs, messages } = event.detail || {};
   ft8SlotTimeEl.textContent = slotStartMs != null ? `slot ${formatUtcTime(slotStartMs)}Z` : '—';
@@ -5060,6 +5065,10 @@ link.addEventListener('ft8-decodes', (event) => {
       // appropriate next message in the standard FT8 exchange and tracks
       // the QSO (see ft8-qso.js). Anything engage() doesn't recognize
       // falls back to the original plain copy-into-composer behavior.
+      // Remember which slot this decode came from, so the reply is
+      // scheduled in the opposite parity slot the station is listening
+      // in (see sendFt8Message() -> replySlotMs, and ft8-bridge.js).
+      if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
       const engaged = ft8Qso.engage(msg);
       if (engaged) {
         applyFt8Suggestion(engaged);
@@ -5111,6 +5120,8 @@ function sendFt8Message() {
     currentQsoFreqHz = ft8DefaultTxFreqHz;
     scopeDisplay.setQsoFreq(currentQsoFreqHz);
     hideQsoStatus();
+    // A fresh CQ isn't answering anyone -- let it go at the next boundary.
+    ft8ReplySlotMs = null;
   }
 
   // currentQsoFreqHz targets this transmission at the frequency the
@@ -5120,6 +5131,9 @@ function sendFt8Message() {
   // active (enterFt8Mode() seeds it), so this is sent explicitly rather
   // than relying on the server's own separate default.
   const request = currentQsoFreqHz != null ? { message: text, freqHz: currentQsoFreqHz } : { message: text };
+  // Tell the server which slot we're answering, so it schedules this in
+  // the opposite parity slot the station is listening in (ft8-bridge.js).
+  if (ft8ReplySlotMs != null) request.replySlotMs = ft8ReplySlotMs;
   link.request('sendFt8', request).catch((err) => showError(`Couldn't send FT8 message: ${err.message}`));
 
   // Once the guided sequence has reached its final step, sending

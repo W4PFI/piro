@@ -90,7 +90,7 @@ const REQUEST = {
   SET_RX_GAIN: 'setRxGain', // {value: 0-255}
   GET_RX_GAIN: 'getRxGain',
   SET_FT8_ACTIVE: 'setFt8Active', // {active: boolean} -> arms/disarms FT8 RX decoding; see ft8-bridge.js
-  SEND_FT8: 'sendFt8', // {message: string, freqHz?: number} -> encodes and transmits at the next FT8 slot boundary; freqHz optionally targets a specific audio frequency (see ft8-qso.js), otherwise Ft8Bridge's own default is used; see ft8-bridge.js
+  SEND_FT8: 'sendFt8', // {message: string, freqHz?: number, replySlotMs?: number} -> encodes and transmits at the next FT8/FT4 slot boundary of the correct parity; freqHz optionally targets a specific audio frequency (see ft8-qso.js); replySlotMs is the slot (epoch ms) a reply is answering, so the transmission lands in the opposite-parity slot the station is listening in (omit for a fresh CQ / manual send); see ft8-bridge.js
   SET_PSK_SPOT_ENABLED: 'setPskSpotEnabled', // {enabled: boolean} -> the "PSK Spot" checkbox; toggles reporting decoded FT8 stations to pskreporter.info, see audio/psk-reporter.js
   SET_FT8_VARIANT: 'setFt8Variant', // {variant: 'FT8'|'FT4'} -> switches the FT8 mode button's protocol (and slot timing); see ft8-bridge.js#setVariant
   SET_FREEDV_ACTIVE: 'setFreeDvActive', // {active: boolean} -> arms/disarms the FreeDV codec bridge (mirrors SET_FT8_ACTIVE); see rade-bridge.js. Only has any real effect while the active variant is 'RADE' — see SET_FREEDV_VARIANT below and rade-bridge.js's own doc comment for why '700E' stays a no-op.
