@@ -5572,6 +5572,7 @@ const digitalTxGainBtn = document.getElementById('digital-tx-gain-btn');
 const digitalTxGainPop = document.getElementById('digital-tx-gain-pop');
 const digitalTxGainSlider = document.getElementById('digital-tx-gain-slider');
 const digitalTxGainReadout = document.getElementById('digital-tx-gain-readout');
+const digitalTxGainClose = document.getElementById('digital-tx-gain-close');
 // Show TX Adjust only in app/digital modes that generate TX audio
 // (FT8/FT4/WSPR/TTY/JS8/VARA/SSTV/EasyPal/FreeDV); hidden in plain voice/CW
 // where it does nothing. Driven from updateSsbChip(), which runs on every
@@ -5605,10 +5606,12 @@ renderDigitalTxGain();
 function openTxAdjustPop() {
   digitalTxGainPop.hidden = false;
   digitalTxGainBtn.setAttribute('aria-expanded', 'true');
+  digitalTxGainBtn.classList.add('tx-power__value--open');
 }
 function closeTxAdjustPop() {
   digitalTxGainPop.hidden = true;
   digitalTxGainBtn.setAttribute('aria-expanded', 'false');
+  digitalTxGainBtn.classList.remove('tx-power__value--open');
 }
 digitalTxGainBtn.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -5618,6 +5621,10 @@ digitalTxGainBtn.addEventListener('click', (e) => {
 // Keep interactions inside the popover from closing it; tap elsewhere (or
 // Escape) closes it.
 digitalTxGainPop.addEventListener('click', (e) => e.stopPropagation());
+digitalTxGainClose.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeTxAdjustPop();
+});
 document.addEventListener('click', () => {
   if (!digitalTxGainPop.hidden) closeTxAdjustPop();
 });
