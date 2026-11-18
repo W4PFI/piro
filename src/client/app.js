@@ -5012,6 +5012,25 @@ function applyFt8Suggestion(suggestion) {
   scopeDisplay.setQsoFreq(currentQsoFreqHz);
 }
 
+// Click vs double-click on an FT8/FT4 activity row: a single click copies
+// the response onto the composer line; a double-click copies and sends it
+// immediately. FT4 shares this same table and composer, so both variants
+// are covered. The short timer discriminates the two, so a double-click's
+// two underlying click events don't run the copy (and its QSO-advancing
+// engage()) more than once before the send.
+const FT8_DBLCLICK_MS = 250;
+let ft8RowClickTimer = null;
+function copyFt8RowToComposer(msg) {
+  // Guided engagement first: a CQ (or a reply to our own CQ, to pick a
+  // specific caller out of a pileup) prefills the appropriate next
+  // message and tracks the QSO (see ft8-qso.js); anything engage()
+  // doesn't recognize falls back to a plain copy-into-composer.
+  const engaged = ft8Qso.engage(msg);
+  if (engaged) applyFt8Suggestion(engaged);
+  else ft8ComposerInput.value = msg.msg || '';
+  ft8ComposerInput.focus();
+}
+
 // --- FT8 band-activity table + composer ---
 
 function formatUtcTime(ms) {
@@ -5056,7 +5075,7 @@ link.addEventListener('ft8-decodes', (event) => {
     if (isRelatedToQso(msg, activeQso)) row.classList.add('ft8-table__row--qso');
     if (isToMe(msg)) row.classList.add('ft8-table__row--to-me');
     row.setAttribute('role', 'row');
-    row.title = 'Click to copy this message into the composer';
+    row.title = 'Click to copy this message into the composer · double-click to send it';
     const utc = document.createElement('span');
     utc.textContent = slotStartMs != null ? formatUtcTime(slotStartMs) : '—';
     const dt = document.createElement('span');
@@ -5069,18 +5088,23 @@ link.addEventListener('ft8-decodes', (event) => {
     text.textContent = msg.msg || '';
     row.append(utc, dt, freq, snr, text);
     row.addEventListener('click', () => {
-      // Guided engagement first — clicking a CQ (or, to pick a specific
-      // caller out of a pileup, a reply to our own CQ) prefills the
-      // appropriate next message in the standard FT8 exchange and tracks
-      // the QSO (see ft8-qso.js). Anything engage() doesn't recognize
-      // falls back to the original plain copy-into-composer behavior.
-      const engaged = ft8Qso.engage(msg);
-      if (engaged) {
-        applyFt8Suggestion(engaged);
-      } else {
-        ft8ComposerInput.value = msg.msg || '';
+      // Single click: copy the response onto the composer line. A short
+      // timer lets a double-click pre-empt it, so a double-click doesn't
+      // run the copy twice before it sends.
+      if (ft8RowClickTimer) clearTimeout(ft8RowClickTimer);
+      ft8RowClickTimer = setTimeout(() => {
+        ft8RowClickTimer = null;
+        copyFt8RowToComposer(msg);
+      }, FT8_DBLCLICK_MS);
+    });
+    row.addEventListener('dblclick', () => {
+      // Double click: copy the response and send it right away.
+      if (ft8RowClickTimer) {
+        clearTimeout(ft8RowClickTimer);
+        ft8RowClickTimer = null;
       }
-      ft8ComposerInput.focus();
+      copyFt8RowToComposer(msg);
+      sendFt8Message();
     });
     ft8TableBodyEl.appendChild(row);
   }
