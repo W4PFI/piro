@@ -4,6 +4,7 @@ import { AudioPipeline, opusSupport, isLanHost } from './audio.js';
 import { ScopeDisplay } from './scope.js';
 import { METER_MODES, METER_TITLES, METER_SEGMENTS, nextMeterMode, shownMeter, meterLegend, meterReading } from './meter-modes.js';
 import { Ft8QsoSequencer, isRelatedToQso, defaultCqMessage } from './ft8-qso.js';
+import { initColumnResize } from './table-resize.js';
 
 // --- Service worker: only register in a secure context (https:, or
 // http://localhost). See docs/pwa-notes.md for why plain http on a LAN
@@ -6745,4 +6746,13 @@ for (const [el, resync] of [
     },
     true
   );
+}
+
+
+// Draggable decode-table columns (desktop/wide view only; see
+// table-resize.js). Kept last so the whole UI is wired up first.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initColumnResize);
+} else {
+  initColumnResize();
 }

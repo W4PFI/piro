@@ -2090,3 +2090,48 @@ button {
   outline: 2px solid var(--led-green);
   outline-offset: 1px;
 }
+
+/* Draggable decode-table columns (desktop/wide view only; see
+   src/client/table-resize.js). Phones and narrow windows never receive
+   data-resizable, so the compact fixed-column layout above is untouched.
+   Each non-last column gets an explicit px width via --ft8-cols; the last
+   column (Message) flexes to stay widest. */
+@media (min-width: 900px) {
+  .ft8-table[data-resizable] {
+    overflow-x: auto; /* safety if the fixed columns are dragged very wide */
+  }
+  .ft8-table[data-resizable] .ft8-table__head,
+  .ft8-table[data-resizable] .ft8-table__row {
+    grid-template-columns: var(--ft8-cols);
+  }
+  .ft8-table[data-resizable] .ft8-table__head [role="columnheader"] {
+    position: relative;
+  }
+  .ft8-col-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -6px; /* straddle the 6px grid gap on the column's right edge */
+    width: 11px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 2;
+  }
+  /* Faint divider that brightens on hover/drag, so the grab area is
+     discoverable without cluttering the header. */
+  .ft8-col-resizer::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 5px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--panel-border);
+    transition: background 0.12s ease;
+  }
+  .ft8-col-resizer:hover::after,
+  .ft8-col-resizer.is-dragging::after {
+    background: var(--led-green);
+  }
+}
