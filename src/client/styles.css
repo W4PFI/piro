@@ -40,7 +40,7 @@ button {
 
 .panel {
   width: 100%;
-  max-width: 960px;
+  max-width: 640px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 6px;
@@ -2015,4 +2015,30 @@ button {
 
 .scope__axis[hidden] {
   display: none;
+}
+
+/* --- Desktop / Mobile view toggle (W4PFI) --- */
+.view-toggle {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.view-toggle:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+body.view-desktop .view-toggle {
+  color: var(--led-green);
+  border-color: var(--led-green);
+}
+/* Desktop mode: use almost the full browser width. The body already has
+   24px side padding, so width:100% leaves tidy gutters. Mobile keeps 640px. */
+body.view-desktop .panel {
+  max-width: none;
 }
