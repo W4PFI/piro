@@ -2033,10 +2033,6 @@ button {
   color: var(--text);
   border-color: var(--text-muted);
 }
-body.view-desktop .view-toggle {
-  color: var(--led-green);
-  border-color: var(--led-green);
-}
 /* Desktop mode: use almost the full browser width. The body already has
    24px side padding, so width:100% leaves tidy gutters. Mobile keeps 640px. */
 body.view-desktop .panel {

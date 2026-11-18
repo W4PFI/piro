@@ -6655,7 +6655,7 @@ for (const [el, resync] of [
     const apply = (mode) => {
       const desktop = mode === 'desktop';
       document.body.classList.toggle('view-desktop', desktop);
-      btn.textContent = desktop ? 'View: Desktop' : 'View: Mobile';
+      btn.textContent = desktop ? 'Desktop' : 'Mobile';
       btn.setAttribute('aria-pressed', desktop ? 'true' : 'false');
     };
     let mode = 'mobile';
