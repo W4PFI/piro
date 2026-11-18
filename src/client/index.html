@@ -499,16 +499,17 @@
           <span class="tx-power__label">Mic</span>
           <select class="tx-power__select" id="mic-gain-select" aria-label="Microphone gain"></select>
         </label>
-        <!-- TX Adjust: software drive on the server-generated transmit audio,
-             like WSJT-X's Pwr. A 1 dB slider (0 to -40 dB). Shown only in
-             app/digital modes (see syncTxAdjustVisible() in app.js). -->
-        <label class="tx-power tx-power--slider" id="digital-tx-gain" hidden>
+        <!-- TX Adjust: at rest shows just the dB value; tapping it opens a
+             slider popover (nicer on mobile). Digital drive, like WSJT-X's
+             Pwr. Shown only in app/digital modes (syncTxAdjustVisible). -->
+        <div class="tx-power" id="digital-tx-gain" hidden>
           <span class="tx-power__label">TX Adjust</span>
-          <span class="tx-power__slider-row">
-            <input type="range" class="tx-power__slider" id="digital-tx-gain-slider" min="-40" max="0" step="1" value="0" aria-label="TX adjust (digital drive, dB)" disabled />
-            <span class="tx-power__readout" id="digital-tx-gain-readout">0 dB</span>
-          </span>
-        </label>
+          <button class="tx-power__select tx-power__value" id="digital-tx-gain-btn" type="button" aria-haspopup="true" aria-expanded="false" disabled>0 dB</button>
+          <div class="tx-adjust-pop" id="digital-tx-gain-pop" hidden>
+            <input type="range" class="tx-adjust-pop__slider" id="digital-tx-gain-slider" min="-40" max="0" step="1" value="0" aria-label="TX adjust (digital drive, dB)" />
+            <span class="tx-adjust-pop__readout" id="digital-tx-gain-readout">0 dB</span>
+          </div>
+        </div>
         <label class="tx-power">
           <span class="tx-power__label">Power</span>
           <select class="tx-power__select" id="tx-power-select" disabled></select>

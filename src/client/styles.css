@@ -2027,27 +2027,44 @@ button {
   }
 }
 
-/* TX Adjust: the digital-drive control as a slider (vs Mic/Power menus). */
-.tx-power--slider {
-  min-width: 128px;
-  justify-content: center;
+/* TX Adjust: a compact dB value that opens a slider popover on tap. */
+#digital-tx-gain {
+  position: relative;
 }
-.tx-power__slider-row {
+.tx-power__value {
+  cursor: pointer;
+}
+.tx-adjust-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  width: 200px;
+  max-width: 70vw;
+  padding: 8px 10px;
+  background: var(--panel-raised);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  z-index: 20;
 }
-.tx-power__slider {
+.tx-adjust-pop[hidden] {
+  display: none;
+}
+.tx-adjust-pop__slider {
   flex: 1;
-  min-width: 64px;
+  min-width: 100px;
   accent-color: var(--led-green);
   cursor: pointer;
 }
-.tx-power__readout {
-  font-size: 0.78rem;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
+.tx-adjust-pop__readout {
+  font-size: 0.8rem;
   min-width: 3.3em;
   text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  color: var(--text);
 }
