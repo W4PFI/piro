@@ -1128,6 +1128,16 @@ link.addEventListener('connected', (event) => {
   tuneBtn.disabled = false;
   txPowerSelect.disabled = false;
   digitalTxGainBtn.disabled = false;
+  // The attenuation floor is server-configured (DIGITAL_TX_GAIN_MIN_DB):
+  // set the slider min from it, and clamp any deeper remembered value.
+  if (Number.isFinite(data.digitalTxGainMinDb)) {
+    digitalTxGainMinDb = data.digitalTxGainMinDb;
+    digitalTxGainSlider.min = String(digitalTxGainMinDb);
+    if (digitalTxGainDb < digitalTxGainMinDb) {
+      digitalTxGainDb = digitalTxGainMinDb;
+      renderDigitalTxGain();
+    }
+  }
   // Push this browser's remembered digital-TX gain to the server (the
   // generated FT8/WSPR/TTY audio is scaled server-side, see audio-bridge).
   link.request('setDigitalTxGain', { db: digitalTxGainDb }).catch(() => {});
@@ -5606,15 +5616,19 @@ function syncTxAdjustVisible() {
   digitalTxGainEl.hidden = !appModeActive();
   if (digitalTxGainEl.hidden) closeTxAdjustPop();
 }
-// TX Adjust is attenuation-only (0 to -80 dB): generated audio sits at a
+// TX Adjust is attenuation-only (0 down to a server-configured floor,
+// DIGITAL_TX_GAIN_MIN_DB, default -50 dB): generated audio sits at a
 // reference level, and with the radio's USB MOD Level maxed
 // (CIV_MAXIMIZE_USB_LEVELS) you need big cuts to bring ALC down. At rest the
 // control shows just the dB value; tapping it opens a 1 dB slider (like
 // WSJT-X's Pwr) -- compact, and easier than an always-shown slider on mobile.
 let digitalTxGainDb = 0;
+// Attenuation floor, overwritten from server config on connect (default
+// matches the server's own DIGITAL_TX_GAIN_MIN_DB default).
+let digitalTxGainMinDb = -50;
 try {
   const saved = Number(localStorage.getItem(DIGITAL_TX_GAIN_KEY));
-  if (Number.isFinite(saved) && saved <= 0 && saved >= -80) digitalTxGainDb = Math.round(saved);
+  if (Number.isFinite(saved) && saved <= 0 && saved >= -120) digitalTxGainDb = Math.round(saved);
 } catch {
   // private mode: not remembered
 }

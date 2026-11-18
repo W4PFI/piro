@@ -175,6 +175,7 @@ class ControlServer extends EventEmitter {
     stationCallsign,
     stationGrid,
     rnnoiseLevelCount = 5,
+    digitalTxGainMinDb = -50,
     sourceCodeUrl,
     pttWatchdogMs = 10 * 60 * 1000,
     heartbeatMs = HEARTBEAT_MS,
@@ -447,6 +448,9 @@ class ControlServer extends EventEmitter {
       // used below to validate an incoming SET_RNNOISE_LEVEL request's
       // range instead of a hardcoded 0-4.
       rnnoiseLevelCount,
+      // TX Adjust attenuation floor (dB, negative), from
+      // DIGITAL_TX_GAIN_MIN_DB; the client sets its slider min from this.
+      digitalTxGainMinDb,
       // Whether the "HamNoise" button (beneath "RNN") is currently armed —
       // see REQUEST.SET_HAMNOISE_ENABLED / audio-bridge.js#setHamNoiseEnabled.
       // A plain boolean, not a level like RNN's — HamNoise has no wet-ratio
@@ -1513,8 +1517,9 @@ class ControlServer extends EventEmitter {
           break;
         }
         case REQUEST.SET_DIGITAL_TX_GAIN: {
-          if (typeof msg.db !== 'number' || msg.db < -80 || msg.db > 40) {
-            throw new Error('"db" must be a number between -80 and 40');
+          const minDb = this.state.digitalTxGainMinDb ?? -50;
+          if (typeof msg.db !== 'number' || msg.db < minDb || msg.db > 40) {
+            throw new Error(`"db" must be a number between ${minDb} and 40`);
           }
           // Handled by AudioBridge via an internal-only event (same
           // pattern as 'rnnoise-level'); ControlServer has no

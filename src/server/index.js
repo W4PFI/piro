@@ -331,6 +331,18 @@ const SCOPE_ENABLED = /^(1|true)$/i.test(process.env.CIV_SCOPE_ENABLED || '');
 // "false" to skip this and leave the radio's levels as found.
 const CIV_MAXIMIZE_USB_LEVELS = !/^(0|false)$/i.test(process.env.CIV_MAXIMIZE_USB_LEVELS || '1');
 
+// TX Adjust (digital-drive) attenuation floor, in dB. The slider and the
+// SET_DIGITAL_TX_GAIN validation run from 0 down to this. Attenuation-only,
+// so it must be negative; default -50, clamped to [-120, -1]. See
+// audio-bridge.js#writeGenerated and ws-server.js (SET_DIGITAL_TX_GAIN).
+const DIGITAL_TX_GAIN_MIN_DB = (() => {
+  const raw = process.env.DIGITAL_TX_GAIN_MIN_DB;
+  if (raw == null || raw === '') return -50;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return -50;
+  return Math.max(-120, Math.min(-1, n));
+})();
+
 // TLS is optional but strongly recommended: without it, microphone access
 // (getUserMedia) is unavailable in the browser entirely on any origin
 // other than localhost, which breaks PTT/TX audio when accessed over the
@@ -475,6 +487,7 @@ async function main() {
     rnnoiseLevelCount: RNNOISE_LEVEL_COUNT,
     sourceCodeUrl: SOURCE_CODE_URL,
     allowedOrigins: ALLOWED_ORIGINS,
+    digitalTxGainMinDb: DIGITAL_TX_GAIN_MIN_DB,
   });
   if (lan) {
     controlServer.on('client-connected', (ws) => {
