@@ -604,6 +604,10 @@ let currentFreqHz = null;
 let currentMode = null;
 let audioPipeline = null;
 let pttActive = false;
+// The radio keyed by the server (FT8/FT4/WSPR/JS8/CW paddle/VARA/SSTV/
+// EasyPal), reflected from the server's 'ptt' event. Used alongside
+// pttActive so SWR/ALC are read during server-driven transmits too.
+let radioTx = false;
 let meterPollTimer = null;
 let functionPollTimer = null;
 let errorClearTimer = null;
@@ -1199,7 +1203,10 @@ link.addEventListener('frequency', (event) => {
 link.addEventListener('mode', (event) => {
   if (!rttyAfskInFlight) updateModeButtons(event.detail.value.mode);
 });
-link.addEventListener('ptt', (event) => updatePttVisual(event.detail.value));
+link.addEventListener('ptt', (event) => {
+  radioTx = !!event.detail.value;
+  updatePttVisual(event.detail.value);
+});
 // Fail-safe transmission cutoff (server-enforced — see docs/civ-notes.md).
 // The 'ptt' event above already updates the button back to its released
 // state; this just makes sure the operator understands *why* TX stopped,
@@ -5630,8 +5637,9 @@ function startMeterPolling() {
     if (inFlight || !link.connected) return;
     inFlight = true;
     try {
-      const shown = shownMeter(meterMode, pttActive);
-      if (shown !== 'S' && !pttActive) {
+      const txing = pttActive || radioTx;
+      const shown = shownMeter(meterMode, txing);
+      if (shown !== 'S' && !txing) {
         setMeterShown(shown, { idle: true }); // SWR and ALC only read while transmitting
         return;
       }
@@ -5639,9 +5647,10 @@ function startMeterPolling() {
       const data = await link.request(request);
       // The mode or PTT may have changed while the radio answered: an SWR or
       // ALC reading that arrives after PTT is released is not shown.
-      const now = shownMeter(meterMode, pttActive);
-      if (shown === now && (shown === 'S' || pttActive)) showMeterReading(shown, data.value);
-      else setMeterShown(now, { idle: now !== 'S' && !pttActive });
+      const nowTx = pttActive || radioTx;
+      const now = shownMeter(meterMode, nowTx);
+      if (shown === now && (shown === 'S' || nowTx)) showMeterReading(shown, data.value);
+      else setMeterShown(now, { idle: now !== 'S' && !nowTx });
     } catch {
       // transient — next poll will retry
     } finally {
