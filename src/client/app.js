@@ -5566,17 +5566,22 @@ micGainSelect.addEventListener('change', () => {
 // Does not affect voice/mic TX.
 const DIGITAL_TX_GAIN_KEY = 'piro.digitalTxGainDb';
 const digitalTxGainSelect = document.getElementById('digital-tx-gain-select');
+// Attenuation-only and deep: generated audio sits at a reference level, and
+// with the radio's USB MOD Level maxed (CIV_MAXIMIZE_USB_LEVELS) you need big
+// cuts to bring ALC down, so drive can be set in software without touching
+// the radio. Boosting generated audio would only clip, so no positive steps.
+const DIGITAL_TX_GAIN_STEPS = [0, -3, -6, -10, -15, -20, -25, -30, -35, -40];
 let digitalTxGainDb = 0;
 try {
   const saved = Number(localStorage.getItem(DIGITAL_TX_GAIN_KEY));
-  if (MIC_GAIN_STEPS.includes(saved)) digitalTxGainDb = saved;
+  if (DIGITAL_TX_GAIN_STEPS.includes(saved)) digitalTxGainDb = saved;
 } catch {
   // private mode: not remembered
 }
-for (const db of MIC_GAIN_STEPS) {
+for (const db of DIGITAL_TX_GAIN_STEPS) {
   const opt = document.createElement('option');
   opt.value = String(db);
-  opt.textContent = db > 0 ? `+${db} dB` : db < 0 ? `−${-db} dB` : '0 dB';
+  opt.textContent = db < 0 ? `−${-db} dB` : '0 dB';
   digitalTxGainSelect.appendChild(opt);
 }
 digitalTxGainSelect.value = String(digitalTxGainDb);
