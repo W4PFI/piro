@@ -2026,3 +2026,28 @@ button {
     max-width: none;
   }
 }
+
+/* TX Adjust: the digital-drive control as a slider (vs Mic/Power menus). */
+.tx-power--slider {
+  min-width: 128px;
+  justify-content: center;
+}
+.tx-power__slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tx-power__slider {
+  flex: 1;
+  min-width: 64px;
+  accent-color: var(--led-green);
+  cursor: pointer;
+}
+.tx-power__readout {
+  font-size: 0.78rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-width: 3.3em;
+  text-align: right;
+  white-space: nowrap;
+}

@@ -499,12 +499,15 @@
           <span class="tx-power__label">Mic</span>
           <select class="tx-power__select" id="mic-gain-select" aria-label="Microphone gain"></select>
         </label>
-        <!-- TX Adjust: software drive on the server-generated transmit
-             audio, like WSJT-X's Pwr. Shown only in app/digital modes that
-             generate audio (see syncTxAdjustVisible() in app.js). -->
-        <label class="tx-power" id="digital-tx-gain" hidden>
+        <!-- TX Adjust: software drive on the server-generated transmit audio,
+             like WSJT-X's Pwr. A 1 dB slider (0 to -40 dB). Shown only in
+             app/digital modes (see syncTxAdjustVisible() in app.js). -->
+        <label class="tx-power tx-power--slider" id="digital-tx-gain" hidden>
           <span class="tx-power__label">TX Adjust</span>
-          <select class="tx-power__select" id="digital-tx-gain-select" aria-label="TX adjust (digital drive)" disabled></select>
+          <span class="tx-power__slider-row">
+            <input type="range" class="tx-power__slider" id="digital-tx-gain-slider" min="-40" max="0" step="1" value="0" aria-label="TX adjust (digital drive, dB)" disabled />
+            <span class="tx-power__readout" id="digital-tx-gain-readout">0 dB</span>
+          </span>
         </label>
         <label class="tx-power">
           <span class="tx-power__label">Power</span>

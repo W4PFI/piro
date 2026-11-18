@@ -1126,7 +1126,7 @@ link.addEventListener('connected', (event) => {
   tunerBtn.disabled = false;
   tuneBtn.disabled = false;
   txPowerSelect.disabled = false;
-  digitalTxGainSelect.disabled = false;
+  digitalTxGainSlider.disabled = false;
   // Push this browser's remembered digital-TX gain to the server (the
   // generated FT8/WSPR/TTY audio is scaled server-side, see audio-bridge).
   link.request('setDigitalTxGain', { db: digitalTxGainDb }).catch(() => {});
@@ -5567,7 +5567,8 @@ micGainSelect.addEventListener('change', () => {
 // digital-mode equivalent of WSJT-X's Pwr slider: set it while watching ALC.
 // Does not affect voice/mic TX.
 const DIGITAL_TX_GAIN_KEY = 'piro.digitalTxGainDb';
-const digitalTxGainSelect = document.getElementById('digital-tx-gain-select');
+const digitalTxGainSlider = document.getElementById('digital-tx-gain-slider');
+const digitalTxGainReadout = document.getElementById('digital-tx-gain-readout');
 const digitalTxGainEl = document.getElementById('digital-tx-gain');
 // Show TX Adjust only in app/digital modes that generate TX audio
 // (FT8/FT4/WSPR/TTY/JS8/VARA/SSTV/EasyPal/FreeDV); hidden in plain voice/CW
@@ -5576,27 +5577,30 @@ const digitalTxGainEl = document.getElementById('digital-tx-gain');
 function syncTxAdjustVisible() {
   digitalTxGainEl.hidden = !appModeActive();
 }
-// Attenuation-only and deep: generated audio sits at a reference level, and
-// with the radio's USB MOD Level maxed (CIV_MAXIMIZE_USB_LEVELS) you need big
-// cuts to bring ALC down, so drive can be set in software without touching
-// the radio. Boosting generated audio would only clip, so no positive steps.
-const DIGITAL_TX_GAIN_STEPS = [0, -3, -6, -10, -15, -20, -25, -30, -35, -40];
+// TX Adjust is attenuation-only (0 to -40 dB): generated audio sits at a
+// reference level, and with the radio's USB MOD Level maxed
+// (CIV_MAXIMIZE_USB_LEVELS) you need big cuts to bring ALC down. A 1 dB slider
+// (like WSJT-X's Pwr) gives fine control without touching the radio; boosting
+// would only clip, so the range stops at 0.
 let digitalTxGainDb = 0;
 try {
   const saved = Number(localStorage.getItem(DIGITAL_TX_GAIN_KEY));
-  if (DIGITAL_TX_GAIN_STEPS.includes(saved)) digitalTxGainDb = saved;
+  if (Number.isFinite(saved) && saved <= 0 && saved >= -40) digitalTxGainDb = Math.round(saved);
 } catch {
   // private mode: not remembered
 }
-for (const db of DIGITAL_TX_GAIN_STEPS) {
-  const opt = document.createElement('option');
-  opt.value = String(db);
-  opt.textContent = db < 0 ? `−${-db} dB` : '0 dB';
-  digitalTxGainSelect.appendChild(opt);
+function renderDigitalTxGain() {
+  digitalTxGainSlider.value = String(digitalTxGainDb);
+  digitalTxGainReadout.textContent = digitalTxGainDb < 0 ? `\u2212${-digitalTxGainDb} dB` : '0 dB';
 }
-digitalTxGainSelect.value = String(digitalTxGainDb);
-digitalTxGainSelect.addEventListener('change', () => {
-  digitalTxGainDb = Number(digitalTxGainSelect.value);
+renderDigitalTxGain();
+// Live readout while dragging; apply (save + tell the server) on release.
+digitalTxGainSlider.addEventListener('input', () => {
+  digitalTxGainDb = Number(digitalTxGainSlider.value);
+  digitalTxGainReadout.textContent = digitalTxGainDb < 0 ? `\u2212${-digitalTxGainDb} dB` : '0 dB';
+});
+digitalTxGainSlider.addEventListener('change', () => {
+  digitalTxGainDb = Number(digitalTxGainSlider.value);
   try {
     localStorage.setItem(DIGITAL_TX_GAIN_KEY, String(digitalTxGainDb));
   } catch {
