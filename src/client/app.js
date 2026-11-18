@@ -5035,6 +5035,14 @@ function copyFt8RowToComposer(msg, slotStartMs) {
   // the opposite parity slot the station is listening in (see
   // sendFt8Message() -> replySlotMs, and ft8-bridge.js).
   if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
+  // Mid-QSO this decode is the partner's reply: ingestDecodes() has
+  // already staged the next message, so keep it rather than copying the
+  // partner's raw text over it. A double-click then just sends it.
+  const activeQso = ft8Qso.getQso();
+  if (activeQso && isRelatedToQso(msg, activeQso)) {
+    ft8ComposerInput.focus();
+    return;
+  }
   // Guided engagement first: a CQ (or a reply to our own CQ, to pick a
   // specific caller out of a pileup) prefills the appropriate next
   // message and tracks the QSO (see ft8-qso.js); anything engage()
@@ -5081,20 +5089,33 @@ link.addEventListener('ft8-decodes', (event) => {
   // whatever this slot decoded, *before* rendering rows below, so the
   // active-QSO highlight below reflects this slot's state rather than
   // the previous one.
-  applyFt8Suggestion(ft8Qso.ingestDecodes(sorted));
+  const qsoAdvanced = ft8Qso.ingestDecodes(sorted);
+  applyFt8Suggestion(qsoAdvanced);
   const activeQso = ft8Qso.getQso();
 
   // Someone calling us: a chime (once per caller; see call-alert.js), and their rows marked.
   const callers = callAlert.check(sorted, slotStartMs, stationCallsign);
   if (callers.length) playCallChime();
 
+  // When the partner's reply advances the sequence, mark their row as
+  // the one to act on and bring it into view, so the operator can just
+  // double-click it to send the staged next message (see ft8-qso.js).
+  let selectedRow = null;
   for (const msg of sorted) {
     const row = document.createElement('div');
     row.className = 'ft8-table__row';
     if (isRelatedToQso(msg, activeQso)) row.classList.add('ft8-table__row--qso');
     if (isToMe(msg)) row.classList.add('ft8-table__row--to-me');
+    if (qsoAdvanced && isRelatedToQso(msg, activeQso)) {
+      row.classList.add('ft8-table__row--selected');
+      selectedRow = row;
+      ft8ReplySlotMs = slotStartMs;
+    }
     row.setAttribute('role', 'row');
     row.title = 'Click to copy this message into the composer · double-click to send it';
+    if (qsoAdvanced && isRelatedToQso(msg, activeQso)) {
+      row.title = 'Your turn: double-click to send your reply';
+    }
     const utc = document.createElement('span');
     utc.textContent = slotStartMs != null ? formatUtcTime(slotStartMs) : '—';
     const dt = document.createElement('span');
@@ -5127,6 +5148,7 @@ link.addEventListener('ft8-decodes', (event) => {
     });
     ft8TableBodyEl.appendChild(row);
   }
+  if (selectedRow) selectedRow.scrollIntoView({ block: 'nearest' });
 });
 
 link.addEventListener('ft8-tx-status', (event) => {

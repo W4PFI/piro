@@ -2135,3 +2135,16 @@ button {
     background: var(--led-green);
   }
 }
+
+/* Guided QSO: the partner's reply, highlighted as the row to act on
+   (double-click to send the staged next message). Green reads as
+   "ready" and stands out from the amber in-QSO rows. Placed after the
+   --qso rules so it wins when a row has both classes. */
+.ft8-table__row--selected {
+  background: color-mix(in srgb, var(--led-green) 16%, transparent);
+  border-left: 3px solid var(--led-green);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--led-green) 40%, transparent);
+}
+.ft8-table__row--selected:hover {
+  background: color-mix(in srgb, var(--led-green) 24%, var(--panel-raised));
+}
