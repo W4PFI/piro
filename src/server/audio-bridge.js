@@ -292,7 +292,7 @@ class AudioBridge extends EventEmitter {
    * writeGenerated(). Does not touch mic/voice audio. 0 dB = unity.
    */
   setGeneratedTxGainDb(db) {
-    const clamped = Math.max(-40, Math.min(40, Number(db) || 0));
+    const clamped = Math.max(-80, Math.min(40, Number(db) || 0));
     this._digitalTxGainLinear = Math.pow(10, clamped / 20);
   }
 

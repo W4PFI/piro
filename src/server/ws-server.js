@@ -1513,8 +1513,8 @@ class ControlServer extends EventEmitter {
           break;
         }
         case REQUEST.SET_DIGITAL_TX_GAIN: {
-          if (typeof msg.db !== 'number' || msg.db < -40 || msg.db > 40) {
-            throw new Error('"db" must be a number between -40 and 40');
+          if (typeof msg.db !== 'number' || msg.db < -80 || msg.db > 40) {
+            throw new Error('"db" must be a number between -80 and 40');
           }
           // Handled by AudioBridge via an internal-only event (same
           // pattern as 'rnnoise-level'); ControlServer has no

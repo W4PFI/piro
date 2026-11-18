@@ -5606,7 +5606,7 @@ function syncTxAdjustVisible() {
   digitalTxGainEl.hidden = !appModeActive();
   if (digitalTxGainEl.hidden) closeTxAdjustPop();
 }
-// TX Adjust is attenuation-only (0 to -40 dB): generated audio sits at a
+// TX Adjust is attenuation-only (0 to -80 dB): generated audio sits at a
 // reference level, and with the radio's USB MOD Level maxed
 // (CIV_MAXIMIZE_USB_LEVELS) you need big cuts to bring ALC down. At rest the
 // control shows just the dB value; tapping it opens a 1 dB slider (like
@@ -5614,7 +5614,7 @@ function syncTxAdjustVisible() {
 let digitalTxGainDb = 0;
 try {
   const saved = Number(localStorage.getItem(DIGITAL_TX_GAIN_KEY));
-  if (Number.isFinite(saved) && saved <= 0 && saved >= -40) digitalTxGainDb = Math.round(saved);
+  if (Number.isFinite(saved) && saved <= 0 && saved >= -80) digitalTxGainDb = Math.round(saved);
 } catch {
   // private mode: not remembered
 }
