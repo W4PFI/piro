@@ -6643,33 +6643,3 @@ for (const [el, resync] of [
     true
   );
 }
-
-// --- Desktop / Mobile view toggle (W4PFI) ---
-// Remembers the choice per browser in localStorage. Mobile keeps the
-// default narrow column; desktop lets the app use almost the full width.
-(function () {
-  function initViewToggle() {
-    const KEY = 'piro.viewMode';
-    const btn = document.getElementById('view-toggle');
-    if (!btn) return;
-    const apply = (mode) => {
-      const desktop = mode === 'desktop';
-      document.body.classList.toggle('view-desktop', desktop);
-      btn.textContent = desktop ? 'Desktop' : 'Mobile';
-      btn.setAttribute('aria-pressed', desktop ? 'true' : 'false');
-    };
-    let mode = 'mobile';
-    try { mode = localStorage.getItem(KEY) || 'mobile'; } catch (e) {}
-    apply(mode);
-    btn.addEventListener('click', () => {
-      mode = document.body.classList.contains('view-desktop') ? 'mobile' : 'desktop';
-      try { localStorage.setItem(KEY, mode); } catch (e) {}
-      apply(mode);
-    });
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initViewToggle);
-  } else {
-    initViewToggle();
-  }
-})();

@@ -2017,24 +2017,12 @@ button {
   display: none;
 }
 
-/* --- Desktop / Mobile view toggle (W4PFI) --- */
-.view-toggle {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  padding: 2px 8px;
-  cursor: pointer;
-  white-space: nowrap;
-  line-height: 1.4;
-}
-.view-toggle:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-/* Desktop mode: use almost the full browser width. The body already has
-   24px side padding, so width:100% leaves tidy gutters. Mobile keeps 640px. */
-body.view-desktop .panel {
-  max-width: none;
+/* Responsive width: phones/narrow windows keep the 640px column (set on
+   .panel above); desktop and other wide screens use almost the full browser
+   width. The body's 24px side padding leaves tidy gutters. Adjusts live as
+   the window resizes or a device rotates -- no JS, no user-agent guessing. */
+@media (min-width: 900px) {
+  .panel {
+    max-width: none;
+  }
 }
