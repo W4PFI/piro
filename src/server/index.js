@@ -599,7 +599,32 @@ async function main() {
     // no native "FT8" mode; operators run it on USB — see
     // docs/ui-notes.md), so it stays idle until the client's FT8 panel
     // explicitly arms it via SET_FT8_ACTIVE.
-    ft8Bridge = new Ft8Bridge({ civ, controlServer, audioBridge });
+    // FT8 decoder speed/effort knobs. Unset = library defaults (depth 2,
+    // 300 candidates). FT8_DECODE_DEPTH 1=fast BP only (quickest, less
+    // weak-signal recovery), 2=BP+OSD, 3=deep, 4=deeper. FT8_MAX_CANDIDATES
+    // caps how many signals are examined. FT8_DECODE_TIMING logs each
+    // slot's decode time. See audio/ft8-decode-worker.js.
+    const FT8_DECODE_DEPTH = (() => {
+      const raw = process.env.FT8_DECODE_DEPTH;
+      if (!raw) return undefined;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) ? Math.max(1, Math.min(4, n)) : undefined;
+    })();
+    const FT8_MAX_CANDIDATES = (() => {
+      const raw = process.env.FT8_MAX_CANDIDATES;
+      if (!raw) return undefined;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n > 0 ? Math.min(600, n) : undefined;
+    })();
+    const FT8_DECODE_TIMING = /^(1|true)$/i.test(process.env.FT8_DECODE_TIMING || '');
+    ft8Bridge = new Ft8Bridge({
+      civ,
+      controlServer,
+      audioBridge,
+      decodeDepth: FT8_DECODE_DEPTH,
+      maxCandidates: FT8_MAX_CANDIDATES,
+      decodeTiming: FT8_DECODE_TIMING,
+    });
     ft8Bridge.start();
     console.log('FT8 bridge ready (RX decoding activates when a client opens the FT8 panel).');
 

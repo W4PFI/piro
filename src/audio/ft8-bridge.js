@@ -147,6 +147,9 @@ class Ft8Bridge {
     pttReleaseMarginMs,
     pskReporter,
     dataSettleMs,
+    decodeDepth,
+    maxCandidates,
+    decodeTiming,
   }) {
     if (!civ) throw new Error('Ft8Bridge requires opts.civ');
     if (!controlServer) throw new Error('Ft8Bridge requires opts.controlServer');
@@ -155,6 +158,14 @@ class Ft8Bridge {
     this.controlServer = controlServer;
     this.audioBridge = audioBridge;
     this.dataSettleMs = dataSettleMs; // see civ/data-mode-guard.js
+    // Decoder tuning (see @e04/ft8ts DecodeOptions). undefined = the
+    // library defaults (depth 2, 300 candidates). A lower depth or fewer
+    // candidates makes each slot decode faster -- so decodes appear sooner
+    // -- at some cost in weak-signal sensitivity. decodeTiming logs each
+    // slot's decode time so the trade-off can be measured.
+    this._decodeDepth = decodeDepth;
+    this._maxCandidates = maxCandidates;
+    this._decodeTiming = decodeTiming;
     // Keyed the same way as PROTOCOLS/this._protocol above, so
     // _transmitNow() can just do this._encodeFns[this._protocol]. Kept as
     // a map (rather than a single this.encodeFn reassigned by
@@ -457,6 +468,7 @@ class Ft8Bridge {
 
     const requestId = this._nextRequestId++;
     this._pendingRequests.set(requestId, {
+      t0: Date.now(),
       resolve: ({ messages, discoveredCallsigns }) => {
         this._rememberCallsigns(discoveredCallsigns);
         this.controlServer.broadcastJsonEvent(EVENT.FT8_DECODES, { slotStartMs, messages });
@@ -477,6 +489,8 @@ class Ft8Bridge {
         sampleRate: FT8_SAMPLE_RATE,
         knownCallsigns: this._knownCallsigns,
         protocol: this._protocol,
+        depth: this._decodeDepth,
+        maxCandidates: this._maxCandidates,
       },
       [floatSamples.buffer]
     );
@@ -487,6 +501,12 @@ class Ft8Bridge {
     if (!pending) return;
     this._pendingRequests.delete(msg.requestId);
     if (msg.type === 'decoded') {
+      if (this._decodeTiming) {
+        const wallMs = Date.now() - (pending.t0 || Date.now());
+        console.log(
+          `[ft8] slot decoded: ${msg.decodeMs ?? '?'}ms decode, ${msg.messages.length} msg, ${wallMs}ms since slot end`
+        );
+      }
       pending.resolve({ messages: msg.messages, discoveredCallsigns: msg.discoveredCallsigns });
     } else if (msg.type === 'decode-error') {
       pending.reject(new Error(msg.error));

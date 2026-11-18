@@ -68,18 +68,25 @@ function extractCallsigns(messageText) {
 
 parentPort.on('message', (msg) => {
   if (msg.type !== 'decode') return;
-  const { requestId, samples, sampleRate, knownCallsigns, protocol } = msg;
+  const { requestId, samples, sampleRate, knownCallsigns, protocol, depth, maxCandidates } = msg;
   try {
     const floatSamples = new Float32Array(samples);
     const book = new HashCallBook();
     for (const call of knownCallsigns) book.save(call);
     const decodeFn = protocol === 'FT4' ? decodeFT4 : decodeFT8;
-    const messages = decodeFn(floatSamples, { sampleRate, hashCallBook: book });
+    // depth/maxCandidates are left undefined unless configured, so the
+    // library's own defaults (depth 2, 300 candidates) apply as before.
+    const decodeOptions = { sampleRate, hashCallBook: book };
+    if (depth != null) decodeOptions.depth = depth;
+    if (maxCandidates != null) decodeOptions.maxCandidates = maxCandidates;
+    const decodeStart = Date.now();
+    const messages = decodeFn(floatSamples, decodeOptions);
+    const decodeMs = Date.now() - decodeStart;
     const discoveredCallsigns = [];
     for (const m of messages) {
       for (const call of extractCallsigns(m.msg)) discoveredCallsigns.push(call);
     }
-    parentPort.postMessage({ type: 'decoded', requestId, messages, discoveredCallsigns });
+    parentPort.postMessage({ type: 'decoded', requestId, messages, discoveredCallsigns, decodeMs });
   } catch (err) {
     parentPort.postMessage({ type: 'decode-error', requestId, error: err.message });
   }
