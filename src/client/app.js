@@ -1130,6 +1130,7 @@ link.addEventListener('connected', (event) => {
   // Push this browser's remembered digital-TX gain to the server (the
   // generated FT8/WSPR/TTY audio is scaled server-side, see audio-bridge).
   link.request('setDigitalTxGain', { db: digitalTxGainDb }).catch(() => {});
+  syncTxAdjustVisible();
   rxGainSlider.disabled = false;
   for (const btn of Object.values(freqStepButtonEls)) btn.disabled = false;
   for (const control of FUNCTION_CONTROLS) {
@@ -1769,6 +1770,7 @@ function updateSsbChip() {
     sstvModeBtn.classList.toggle('chip--active', sstvActive || faxActive || easypalActive);
     sstvModeBtn.textContent = sstvActive ? 'SSTV' : easypalActive ? 'EasyPal' : faxActive ? 'Fax' : 'Image';
   }
+  syncTxAdjustVisible();
 }
 
 function updateModeButtons(mode) {
@@ -5566,6 +5568,14 @@ micGainSelect.addEventListener('change', () => {
 // Does not affect voice/mic TX.
 const DIGITAL_TX_GAIN_KEY = 'piro.digitalTxGainDb';
 const digitalTxGainSelect = document.getElementById('digital-tx-gain-select');
+const digitalTxGainEl = document.getElementById('digital-tx-gain');
+// Show TX Adjust only in app/digital modes that generate TX audio
+// (FT8/FT4/WSPR/TTY/JS8/VARA/SSTV/EasyPal/FreeDV); hidden in plain voice/CW
+// where it does nothing. Driven from updateSsbChip(), which runs on every
+// app-mode transition (the SSB chip follows appModeActive() too).
+function syncTxAdjustVisible() {
+  digitalTxGainEl.hidden = !appModeActive();
+}
 // Attenuation-only and deep: generated audio sits at a reference level, and
 // with the radio's USB MOD Level maxed (CIV_MAXIMIZE_USB_LEVELS) you need big
 // cuts to bring ALC down, so drive can be set in software without touching
