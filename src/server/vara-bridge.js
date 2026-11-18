@@ -405,7 +405,7 @@ class VaraBridge {
         this._sent = Math.max(0, this._sent - s.length);
         const pcm = Buffer.alloc(s.length * 2);
         for (let i = 0; i < s.length; i++) pcm.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(s[i] * 32767))), i * 2);
-        this.audioBridge.playback.write(pcm);
+        this.audioBridge.writeGenerated(pcm);
         break;
       }
       case 'lines':

@@ -234,7 +234,7 @@ class EasypalTxBridge {
         this._status({ status: 'sending', durationSec: r.durationSec, startTime: this.now(), elapsedSec: 0, ...info });
       }
       if (!tx.aborted) {
-        this.audioBridge.playback.write(r.pcm);
+        this.audioBridge.writeGenerated(r.pcm);
         if (civ) {
           stopWatch = watchDataMode(civ, {
             intervalMs: this.dataWatchMs,

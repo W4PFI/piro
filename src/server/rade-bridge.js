@@ -460,7 +460,7 @@ class RadeBridge extends EventEmitter {
       this._reportError('tx-resample-out', err);
       return;
     }
-    this.audioBridge.playback.write(pcmOut);
+    this.audioBridge.writeGenerated(pcmOut);
   }
 
   _reportError(context, err) {

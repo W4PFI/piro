@@ -89,6 +89,7 @@ const REQUEST = {
   GET_TX_POWER: 'getTxPower',
   SET_RX_GAIN: 'setRxGain', // {value: 0-255}
   GET_RX_GAIN: 'getRxGain',
+  SET_DIGITAL_TX_GAIN: 'setDigitalTxGain', // {db: number} -> software gain (dB, same steps as Mic gain) on the server-generated digital TX audio (FT8/FT4/WSPR/JS8/RTTY/JTTY/Olivia/Hell/VARA/SSTV/EasyPal/RADE) before the USB codec; like WSJT-X's Pwr slider, for setting drive while watching ALC. Applied server-side in audio-bridge.js#writeGenerated; never touches mic/voice audio.
   SET_FT8_ACTIVE: 'setFt8Active', // {active: boolean} -> arms/disarms FT8 RX decoding; see ft8-bridge.js
   SEND_FT8: 'sendFt8', // {message: string, freqHz?: number} -> encodes and transmits at the next FT8 slot boundary; freqHz optionally targets a specific audio frequency (see ft8-qso.js), otherwise Ft8Bridge's own default is used; see ft8-bridge.js
   SET_PSK_SPOT_ENABLED: 'setPskSpotEnabled', // {enabled: boolean} -> the "PSK Spot" checkbox; toggles reporting decoded FT8 stations to pskreporter.info, see audio/psk-reporter.js

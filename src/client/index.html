@@ -499,6 +499,12 @@
           <span class="tx-power__label">Mic</span>
           <select class="tx-power__select" id="mic-gain-select" aria-label="Microphone gain"></select>
         </label>
+        <!-- Digital TX gain (FT8/FT4/WSPR/TTY...): software drive on the
+             server-generated transmit audio, like WSJT-X's Pwr. app.js. -->
+        <label class="tx-power" id="digital-tx-gain">
+          <span class="tx-power__label">Data</span>
+          <select class="tx-power__select" id="digital-tx-gain-select" aria-label="Digital TX gain" disabled></select>
+        </label>
         <label class="tx-power">
           <span class="tx-power__label">Power</span>
           <select class="tx-power__select" id="tx-power-select" disabled></select>

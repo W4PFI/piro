@@ -316,7 +316,7 @@ class TtyBridge {
       if (civ && mode !== 'RTTY' && !tx.aborted) await ensureDataMode(civ, true, { settleMs: this.dataSettleMs });
       if (!tx.aborted) await this.controlServer.setPttFromServer(true);
       if (!tx.aborted) {
-        this.audioBridge.playback.write(built.pcm);
+        this.audioBridge.writeGenerated(built.pcm);
         if (civ && (mode !== 'RTTY' || switched)) {
           stopWatch = watchDataMode(civ, {
             intervalMs: this.dataWatchMs,

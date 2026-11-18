@@ -1126,6 +1126,10 @@ link.addEventListener('connected', (event) => {
   tunerBtn.disabled = false;
   tuneBtn.disabled = false;
   txPowerSelect.disabled = false;
+  digitalTxGainSelect.disabled = false;
+  // Push this browser's remembered digital-TX gain to the server (the
+  // generated FT8/WSPR/TTY audio is scaled server-side, see audio-bridge).
+  link.request('setDigitalTxGain', { db: digitalTxGainDb }).catch(() => {});
   rxGainSlider.disabled = false;
   for (const btn of Object.values(freqStepButtonEls)) btn.disabled = false;
   for (const control of FUNCTION_CONTROLS) {
@@ -5552,6 +5556,38 @@ micGainSelect.addEventListener('change', () => {
   } catch {
     // not remembered
   }
+});
+
+// --- Digital TX gain (FT8/FT4/WSPR/TTY/...) ---
+// A software drive control for the server-generated transmit audio, styled
+// and optioned like Mic gain. Remembered per browser; pushed to the server,
+// which scales the generated PCM (see audio-bridge.js#writeGenerated). The
+// digital-mode equivalent of WSJT-X's Pwr slider: set it while watching ALC.
+// Does not affect voice/mic TX.
+const DIGITAL_TX_GAIN_KEY = 'piro.digitalTxGainDb';
+const digitalTxGainSelect = document.getElementById('digital-tx-gain-select');
+let digitalTxGainDb = 0;
+try {
+  const saved = Number(localStorage.getItem(DIGITAL_TX_GAIN_KEY));
+  if (MIC_GAIN_STEPS.includes(saved)) digitalTxGainDb = saved;
+} catch {
+  // private mode: not remembered
+}
+for (const db of MIC_GAIN_STEPS) {
+  const opt = document.createElement('option');
+  opt.value = String(db);
+  opt.textContent = db > 0 ? `+${db} dB` : db < 0 ? `−${-db} dB` : '0 dB';
+  digitalTxGainSelect.appendChild(opt);
+}
+digitalTxGainSelect.value = String(digitalTxGainDb);
+digitalTxGainSelect.addEventListener('change', () => {
+  digitalTxGainDb = Number(digitalTxGainSelect.value);
+  try {
+    localStorage.setItem(DIGITAL_TX_GAIN_KEY, String(digitalTxGainDb));
+  } catch {
+    // not remembered
+  }
+  link.request('setDigitalTxGain', { db: digitalTxGainDb }).catch((err) => showError(err.message));
 });
 // Visible exactly when the PTT button is: the several places that show or
 // hide the PTT button and its section don't each need to know about it.

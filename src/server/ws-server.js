@@ -1512,6 +1512,17 @@ class ControlServer extends EventEmitter {
           ws.send(makeResult(id, { value }));
           break;
         }
+        case REQUEST.SET_DIGITAL_TX_GAIN: {
+          if (typeof msg.db !== 'number' || msg.db < -40 || msg.db > 40) {
+            throw new Error('"db" must be a number between -40 and 40');
+          }
+          // Handled by AudioBridge via an internal-only event (same
+          // pattern as 'rnnoise-level'); ControlServer has no
+          // audioBridge reference.
+          this.emit('digital-tx-gain', msg.db);
+          ws.send(makeResult(id, { db: msg.db }));
+          break;
+        }
         default:
           throw new Error(`Unknown request type "${type}"`);
       }
