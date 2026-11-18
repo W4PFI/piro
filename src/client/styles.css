@@ -40,7 +40,7 @@ button {
 
 .panel {
   width: 100%;
-  max-width: 640px;
+  max-width: 960px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 6px;
