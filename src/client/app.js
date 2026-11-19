@@ -4984,6 +4984,7 @@ function setFt8UiVisible(active) {
     ft8Qso.reset();
     callAlert.reset();
     hideQsoStatus();
+    ft8SendBtn.classList.remove('ft8-composer__send--attention');
     currentQsoFreqHz = null;
     scopeDisplay.setQsoFreq(null);
   }
@@ -5012,6 +5013,14 @@ function applyFt8Suggestion(suggestion) {
   if (!suggestion) return;
   ft8ComposerInput.value = suggestion.txText;
   if (suggestion.statusText) showQsoStatus(suggestion.statusText);
+  // A guided reply is staged but never auto-sent (see ft8-qso.js) — the
+  // operator's one remaining action is to press Send. Make that
+  // unmistakable when it's their turn (send your report, your 73, ...):
+  // focus the Send button and pulse it, so it's obvious even with eyes on
+  // the waterfall. A double-click auto-send clears this again in
+  // sendFt8Message(); so does leaving FT8 mode.
+  ft8SendBtn.classList.add('ft8-composer__send--attention');
+  ft8SendBtn.focus();
   // Guided suggestions always carry their own tracked frequency in
   // practice (the decoded signal's own freq — see ft8-qso.js); the
   // fallback to the session's persisted default here is just defensive,
@@ -5189,7 +5198,6 @@ function sendFt8Message() {
     ft8Qso.noteOwnCqSent();
     currentQsoFreqHz = ft8DefaultTxFreqHz;
     scopeDisplay.setQsoFreq(currentQsoFreqHz);
-    hideQsoStatus();
     // A fresh CQ isn't answering anyone -- let it go at the next boundary.
     ft8ReplySlotMs = null;
   }
@@ -5216,9 +5224,19 @@ function sendFt8Message() {
     ft8Qso.reset();
     currentQsoFreqHz = ft8DefaultTxFreqHz;
     scopeDisplay.setQsoFreq(currentQsoFreqHz);
-    hideQsoStatus();
     ft8ComposerInput.value = defaultCqMessage(stationCallsign, stationGrid);
   }
+
+  // The staged message has now gone out, so drop the "your turn" cue on
+  // the Send button and replace any lingering staged-state prompt ("send
+  // this reply") with a neutral line for what we're now waiting to hear
+  // back. This is what stops a double-clicked, auto-sent reply from still
+  // reading as if the operator must press Send (see applyFt8Suggestion()
+  // and ft8-qso.js waitingStatus()). Nothing in progress -> hide the line.
+  ft8SendBtn.classList.remove('ft8-composer__send--attention');
+  const waiting = ft8Qso.waitingStatus();
+  if (waiting) showQsoStatus(waiting);
+  else hideQsoStatus();
 }
 
 ft8SendBtn.addEventListener('click', sendFt8Message);

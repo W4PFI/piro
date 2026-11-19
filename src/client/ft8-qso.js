@@ -192,6 +192,28 @@ export class Ft8QsoSequencer {
     return this.qso;
   }
 
+  /**
+   * A short, non-imperative line for what the sequence is now waiting to
+   * *receive*, after our staged message is on its way out (scheduled/sending) — used by
+   * app.js to replace the staged-state prompt ("send this reply") once the
+   * operator (or a double-click) has sent it, so an auto-sent reply doesn't
+   * keep reading as if Send is still pending. null when nothing's in
+   * progress to wait for (no QSO and not seeking, or the QSO is complete).
+   */
+  waitingStatus() {
+    if (this.qso) {
+      const p = this.qso.partnerCall;
+      switch (this.qso.step) {
+        case 'awaiting-report': return `Sending — waiting for ${p}'s signal report.`;
+        case 'awaiting-final': return `Sending — waiting for ${p}'s RRR/RR73.`;
+        case 'awaiting-ack': return `Sending — waiting for ${p}'s acknowledgement.`;
+        default: return null; // 'complete' — the QSO is wrapping up
+      }
+    }
+    if (this._seeking) return 'Sending CQ — waiting for a reply.';
+    return null;
+  }
+
   /** Clears any in-progress QSO/seeking state — call on leaving FT8 mode, or an explicit "start over". */
   reset() {
     this.qso = null;

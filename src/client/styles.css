@@ -481,6 +481,29 @@ button {
   cursor: not-allowed;
 }
 
+/* "Your turn": a guided reply (your report, your 73, ...) is staged and
+   waiting for the operator to press Send (see app.js applyFt8Suggestion /
+   sendFt8Message). Pulses amber so it's obvious it's time to send, even
+   with eyes on the waterfall. Cleared the moment the message goes out. */
+.ft8-composer__send--attention {
+  border-color: var(--led-amber);
+  color: var(--led-amber);
+  background: color-mix(in srgb, var(--led-amber) 14%, var(--panel-raised));
+  animation: ft8-send-attention 1.4s ease-in-out infinite;
+}
+
+@keyframes ft8-send-attention {
+  50% {
+    box-shadow: 0 0 7px 1px var(--led-amber);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ft8-composer__send--attention {
+    animation: none;
+  }
+}
+
 .ft8-status {
   margin: 0;
   font-size: 0.75rem;
