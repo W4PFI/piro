@@ -514,6 +514,13 @@ button {
   display: none;
 }
 
+/* On the air: the TX status line turns red while actually transmitting
+   (status 'sending'), a clear keyed-up indicator. */
+.ft8-status--sending {
+  color: var(--led-red);
+  font-weight: 600;
+}
+
 /* Guided-QSO progress line (see src/client/ft8-qso.js) — distinct from
    .ft8-status above, which reports TX scheduling/send lifecycle; this
    reports "what the guided sequence is doing/waiting for", which can be

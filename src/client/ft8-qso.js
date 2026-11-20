@@ -204,13 +204,13 @@ export class Ft8QsoSequencer {
     if (this.qso) {
       const p = this.qso.partnerCall;
       switch (this.qso.step) {
-        case 'awaiting-report': return `Sending — waiting for ${p}'s signal report.`;
-        case 'awaiting-final': return `Sending — waiting for ${p}'s RRR/RR73.`;
-        case 'awaiting-ack': return `Sending — waiting for ${p}'s acknowledgement.`;
+        case 'awaiting-report': return `Waiting for ${p}'s signal report.`;
+        case 'awaiting-final': return `Waiting for ${p}'s RRR/RR73.`;
+        case 'awaiting-ack': return `Waiting for ${p}'s acknowledgement.`;
         default: return null; // 'complete' — the QSO is wrapping up
       }
     }
-    if (this._seeking) return 'Sending CQ — waiting for a reply.';
+    if (this._seeking) return 'Waiting for a reply to your CQ.';
     return null;
   }
 
