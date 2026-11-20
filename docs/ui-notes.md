@@ -5698,3 +5698,30 @@ also in v142.
   manual-tty-ui.js: the banner in both browsers, below the header, and
   gone when the radio answers.
 - Service-worker cache v146.
+
+### Guided FT8/FT4 QSO: auto-select, locked slot parity, Even/Odd labels (v150)
+- When the partner's reply decodes and the guided sequence advances, that
+  row is marked green and brought into view, so a double-click sends the
+  already-staged next message (report / RR73 / 73). A click or double-click
+  on an active-QSO row no longer overwrites the staged message with the
+  partner's raw text.
+- Transmit-slot parity is locked for the life of a QSO. The reply slot is
+  fixed to the slot we first heard the partner in and held, so a later
+  decode that wanders parity (a drifting clock, or a late decode put in the
+  wrong slot) can't flip which 15 s sequence we transmit in. The lock resets
+  when a new CQ is engaged, on leaving FT8, or when the QSO completes; the
+  transmit frequency still tracks the partner independently. On air this
+  turned a QSO that had bounced Even/Odd/Odd/Even/Odd into a clean,
+  single-parity exchange start to finish.
+- The slot time and the TX schedule line now show WSJT-X's Even/Odd label
+  (Even = :00/:30, Odd = :15/:45) next to the UTC time, so the sequence is
+  legible: "slot 03:17:00Z . Even", "Scheduled: ... -- 03:17:30Z . Even".
+- Status lines tidied. The guided line reads "Waiting for X's signal report"
+  (what we're waiting to receive), shown only once our own reply is actually
+  on the air, not while it's merely Scheduled. The TX status line turns red
+  while transmitting ('sending'), and the Send button pulses amber when it
+  is the operator's turn to send.
+- Tests: ft8-qso.test.mjs covers the sequencer (both roles, the pileup pick,
+  waitingStatus across the steps). The slot-parity lock and the UI wiring
+  live in app.js (not unit-tested) and were verified on air.
+- Service-worker cache v150.
