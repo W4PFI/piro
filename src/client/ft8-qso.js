@@ -321,6 +321,14 @@ export class Ft8QsoSequencer {
     if (parsed.isCq) return null;
     if (parsed.toCall === this.myCall) return null;
     if (!parsed.fromCall || parsed.fromCall === this.myCall) return null;
+    // The parser puts ANY second word in fromCall, so "TNX ROBERT 73" must
+    // not be mistaken for ROBERT calling TNX. Require a real directed
+    // exchange: both calls valid, and a recognized payload (grid / report /
+    // R-report / RRR / RR73 / 73) or a bare two-call directed message.
+    if (!CALLSIGN_RE.test(parsed.fromCall) || !CALLSIGN_RE.test(parsed.toCall)) return null;
+    const recognized = parsed.grid || parsed.report || parsed.ackReport
+      || parsed.isRR73 || parsed.isRRR || parsed.is73 || parsed.tokens.length === 2;
+    if (!recognized) return null;
     return this._startCalling(parsed.fromCall, decoded);
   }
 

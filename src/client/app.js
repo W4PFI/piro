@@ -4571,16 +4571,18 @@ function tuneFt8ToBand(bandName) {
   const hz = ft8FrequencyTable()[bandName];
   if (hz == null) return;
   // A real band change mid-session leaves behind whatever station we were
-  // working: abandon the guided QSO and fall back to calling CQ so a stale
-  // reply (and its locked transmit-slot parity) can't follow us to the new
-  // band. Not on the first tune when entering FT8 (ft8LastBandName is null).
-  if (ft8LastBandName != null && bandName !== ft8LastBandName) {
-    resetFt8QsoToCq();
-  }
+  // working, so abandon the guided QSO and fall back to calling CQ -- but
+  // only AFTER the radio confirms the move (below): the server/radio is the
+  // source of truth, so a rejected tune (we stay put) must leave the QSO
+  // intact. Not on the first tune when entering FT8 (ft8LastBandName null).
+  const bandChanged = ft8LastBandName != null && bandName !== ft8LastBandName;
   ft8LastBandName = bandName;
   link
     .request('setFrequency', { value: hz })
-    .then(() => updateFrequencyDisplay(hz))
+    .then(() => {
+      updateFrequencyDisplay(hz);
+      if (bandChanged) resetFt8QsoToCq();
+    })
     .catch((err) => showError(`Couldn't tune to ${bandName} ${ft8Variant} frequency: ${err.message}`));
 }
 
@@ -5083,7 +5085,10 @@ function copyFt8RowToComposer(msg, slotStartMs) {
   // we can wait for them to finish and then send (see ft8-qso.js). Only a
   // row that is neither -- free text/telemetry with no callsign -- falls
   // back to the plain copy-into-composer below.
-  const engaged = ft8Qso.engage(msg) || ft8Qso.startCalling(msg);
+  // engage() handles a CQ or a reply addressed to us. startCalling() (work a
+  // station we merely overheard) fires ONLY when idle: while a QSO is active,
+  // a click on an unrelated station must not silently switch partners.
+  const engaged = ft8Qso.engage(msg) || (activeQso ? null : ft8Qso.startCalling(msg));
   if (engaged) {
     // Starting (or re-engaging) a QSO: lock our reply slot parity to the
     // slot we heard this station in, and hold it for the QSO's life.
