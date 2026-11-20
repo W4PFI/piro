@@ -291,13 +291,37 @@ export class Ft8QsoSequencer {
   }
 
   _startFromCq(parsed, decoded) {
-    this.qso = { partnerCall: parsed.cqCall, role: 'caller', step: 'awaiting-report', freqHz: decoded.freq };
+    return this._startCalling(parsed.cqCall, decoded);
+  }
+
+  // Starts a QSO by calling `call` — the station whose CQ we answered, or any
+  // station we heard and chose to work (see startCalling) — with our standard
+  // first transmission, "THEIRCALL MYCALL MYGRID".
+  _startCalling(call, decoded) {
+    this.qso = { partnerCall: call, role: 'caller', step: 'awaiting-report', freqHz: decoded.freq };
     this._seeking = false;
     return this._suggestion(
-      `${parsed.cqCall} ${this.myCall} ${this.myGrid}`,
+      `${call} ${this.myCall} ${this.myGrid}`,
       decoded.freq,
-      `Calling ${parsed.cqCall} — send this reply, then watch for their signal report.`
+      `Calling ${call} — send this reply, then watch for their signal report.`
     );
+  }
+
+  /**
+   * Stages a call to a station we heard that is NOT calling CQ and is NOT
+   * answering us — e.g. one station working another. Clicking such a row
+   * means "I want to work this station": compose our first call to its
+   * sender so the operator can wait for them to finish, then send. Returns a
+   * suggestion, or null if the row isn't a standard message from another
+   * station.
+   */
+  startCalling(decoded) {
+    if (!this.isConfigured || !decoded || typeof decoded.msg !== 'string') return null;
+    const parsed = parseFt8Message(decoded.msg);
+    if (parsed.isCq) return null;
+    if (parsed.toCall === this.myCall) return null;
+    if (!parsed.fromCall || parsed.fromCall === this.myCall) return null;
+    return this._startCalling(parsed.fromCall, decoded);
   }
 
   _startFromReply(parsed, decoded) {

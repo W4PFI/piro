@@ -4553,9 +4553,30 @@ function exitFt8Mode({ local = false, keepDataMode = false } = {}) {
  * sideband — FT8/FT4 stay on USB on every band (see enterFt8Mode()'s doc
  * comment on why that's correct, unlike FreeDV/voice SSB).
  */
+// Abandons the current guided QSO and returns the composer to a fresh CQ:
+// clears the band-activity table, resets the sequencer, drops the transmit
+// slot-parity lock, hides the QSO status line, and refills the composer with
+// the default CQ. Used when a band change means the station we were working
+// is no longer in front of us (see tuneFt8ToBand).
+function resetFt8QsoToCq() {
+  ft8TableBodyEl.innerHTML = '';
+  ft8Qso.reset();
+  ft8ReplySlotMs = null;
+  ft8ParityLockPartner = null;
+  hideQsoStatus();
+  ft8ComposerInput.value = defaultCqMessage(stationCallsign, stationGrid);
+}
+
 function tuneFt8ToBand(bandName) {
   const hz = ft8FrequencyTable()[bandName];
   if (hz == null) return;
+  // A real band change mid-session leaves behind whatever station we were
+  // working: abandon the guided QSO and fall back to calling CQ so a stale
+  // reply (and its locked transmit-slot parity) can't follow us to the new
+  // band. Not on the first tune when entering FT8 (ft8LastBandName is null).
+  if (ft8LastBandName != null && bandName !== ft8LastBandName) {
+    resetFt8QsoToCq();
+  }
   ft8LastBandName = bandName;
   link
     .request('setFrequency', { value: hz })
@@ -5055,10 +5076,14 @@ function copyFt8RowToComposer(msg, slotStartMs) {
     return;
   }
   // Guided engagement first: a CQ (or a reply to our own CQ, to pick a
-  // specific caller out of a pileup) prefills the appropriate next
-  // message and tracks the QSO (see ft8-qso.js); anything engage()
-  // doesn't recognize falls back to a plain copy-into-composer.
-  const engaged = ft8Qso.engage(msg);
+  // specific caller out of a pileup) prefills the appropriate next message
+  // and tracks the QSO. Failing that, startCalling() treats a click on any
+  // other station we heard (one working someone else) as "work this
+  // station" and stages our first call to them, "THEIRCALL MYCALL GRID", so
+  // we can wait for them to finish and then send (see ft8-qso.js). Only a
+  // row that is neither -- free text/telemetry with no callsign -- falls
+  // back to the plain copy-into-composer below.
+  const engaged = ft8Qso.engage(msg) || ft8Qso.startCalling(msg);
   if (engaged) {
     // Starting (or re-engaging) a QSO: lock our reply slot parity to the
     // slot we heard this station in, and hold it for the QSO's life.
@@ -5066,13 +5091,20 @@ function copyFt8RowToComposer(msg, slotStartMs) {
     if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
     ft8ParityLockPartner = engaged.partnerCall;
     applyFt8Suggestion(engaged);
-  } else {
-    // A plain copy of a row the guided sequence doesn't track: reply
-    // opposite its slot, one-off, with no QSO and no parity lock.
+  } else if (!activeQso) {
+    // A plain copy of a row the guided sequence doesn't track, made while
+    // no QSO is in progress: a manual escape hatch to drop the row's text
+    // into the composer to edit and send. Reply opposite its slot, one-off,
+    // with no parity lock.
     if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
     ft8ParityLockPartner = null;
     ft8ComposerInput.value = msg.msg || '';
   }
+  // Else: a QSO is in progress and this row is not its partner, a CQ, or a
+  // reply to us -- e.g. two other stations' exchange. Leave the staged reply
+  // and the QSO status line untouched rather than overwriting the composer
+  // with text that doesn't match the status (which looked sendable but
+  // wasn't). Just focus the composer.
   ft8ComposerInput.focus();
 }
 
@@ -5109,6 +5141,13 @@ let ft8ParityLockPartner = null;
 link.addEventListener('ft8-decodes', (event) => {
   const { slotStartMs, messages } = event.detail || {};
   ft8SlotTimeEl.textContent = slotStartMs != null ? `slot ${formatUtcTime(slotStartMs)}Z · ${slotParityLabel(slotStartMs)}` : '—';
+  // The whole body is rebuilt below for the new slot, which would reset the
+  // scroll position to the top. Remember where the operator is so we can put
+  // them back at the tail of this handler -- a new slot shouldn't yank the
+  // list out from under them while they're scrolling through it.
+  const ft8Scroller = ft8TableBodyEl.parentElement;
+  const ft8PrevScrollTop = ft8Scroller ? ft8Scroller.scrollTop : 0;
+  const ft8UserScrolled = ft8PrevScrollTop > 4;
   ft8TableBodyEl.innerHTML = '';
   if (!messages || messages.length === 0) {
     const empty = document.createElement('div');
@@ -5172,7 +5211,7 @@ link.addEventListener('ft8-decodes', (event) => {
     const freq = document.createElement('span');
     freq.textContent = typeof msg.freq === 'number' ? `${Math.round(msg.freq)}Hz` : '—';
     const snr = document.createElement('span');
-    snr.textContent = typeof msg.snr === 'number' ? `${msg.snr > 0 ? '+' : ''}${msg.snr}` : '—';
+    snr.textContent = typeof msg.snr === 'number' ? `${msg.snr > 0 ? '+' : ''}${msg.snr.toFixed(2)}` : '—';
     const text = document.createElement('span');
     text.textContent = msg.msg || '';
     row.append(utc, dt, freq, snr, text);
@@ -5197,7 +5236,15 @@ link.addEventListener('ft8-decodes', (event) => {
     });
     ft8TableBodyEl.appendChild(row);
   }
-  if (selectedRow) selectedRow.scrollIntoView({ block: 'nearest' });
+  // Keep the guided-QSO partner reply in view, but don't fight a manual
+  // scroll: only auto-scroll to it when the operator is at the top of the
+  // list (not browsing up it); otherwise restore their pre-rebuild scroll
+  // position so the new slot's rebuild is seamless.
+  if (selectedRow && !ft8UserScrolled) {
+    selectedRow.scrollIntoView({ block: 'nearest' });
+  } else if (ft8Scroller && ft8UserScrolled) {
+    ft8Scroller.scrollTop = ft8PrevScrollTop;
+  }
 });
 
 link.addEventListener('ft8-tx-status', (event) => {
