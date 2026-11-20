@@ -5725,3 +5725,35 @@ also in v142.
   waitingStatus across the steps). The slot-parity lock and the UI wiring
   live in app.js (not unit-tested) and were verified on air.
 - Service-worker cache v150.
+
+### FT8/FT4 guided-QSO and decode-table refinements (v151)
+
+Guided QSO:
+- Changing bands mid-session now resets the guided sequence back to calling
+  CQ, so a staged reply (and its locked transmit-slot parity) can't follow
+  you onto the new band.
+- Clicking a decoded station that is not calling CQ and not answering you
+  (one station working another) now stages your first call to that station,
+  "THEIRCALL MYCALL GRID", so you can wait for them to finish and then send,
+  instead of dropping the raw message text onto the composer. Clicking a CQ,
+  or a reply addressed to you, still engages as before.
+- While a QSO is in progress, clicking an unrelated row no longer overwrites
+  the staged reply or desyncs the status line; the manual copy-to-composer
+  is kept only when no QSO is active.
+
+Decode table readability:
+- SNR is shown to two decimal places (it was the raw float, which overflowed
+  the column to "-7.089...").
+- On phones the message wraps onto its own full-width line below the
+  metadata, and the UTC column is widened so HH:MM:SS is no longer clipped.
+- The decoded message is shown in the bright text colour with the
+  UTC/dt/Freq/SNR metadata muted, so the message reads as the primary
+  content.
+- The band-activity list keeps your scroll position across the per-slot
+  refresh instead of jumping to the top, and only auto-scrolls to the active
+  QSO row when you are at the top of the list.
+
+- Tests: ft8-qso.test.mjs (the sequencer) still passes. startCalling() and
+  the table/scroll/CSS changes live in app.js/styles.css and were verified
+  on air.
+- Service-worker cache v151.
