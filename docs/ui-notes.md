@@ -5757,3 +5757,24 @@ Decode table readability:
   the table/scroll/CSS changes live in app.js/styles.css and were verified
   on air.
 - Service-worker cache v151.
+
+### FT8/FT4 guided-QSO review fixes (v152)
+
+Follow-up to v151, addressing review feedback:
+- Clicking an unrelated station mid-QSO no longer switches partners. The
+  "work a station we overheard" action (startCalling) now fires only when no
+  QSO is in progress; a CQ or a reply addressed to us still engages.
+- A band change resets the guided QSO to CQ only after the radio confirms the
+  tune. A move the radio rejects (we stay on the old band) now leaves the QSO
+  intact -- the radio/server stays the source of truth.
+- startCalling validates both callsigns (CALLSIGN_RE) and requires a
+  recognized exchange, so free text like "TNX ROBERT 73" is no longer taken
+  for a station to call.
+- The FT8 bridge now cancels a transmission queued for the next slot boundary
+  when the dial retunes (new cancelPendingTx(), hooked to the server
+  frequency event), so a reply staged for one band cannot go out on another.
+  This is the one server-side change in the PR.
+
+- Tests: ft8-qso.test.mjs still passes; the band-change / retune behaviour is
+  in app.js / ft8-bridge.js and was verified on air.
+- Service-worker cache v152.
