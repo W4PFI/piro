@@ -80,7 +80,7 @@ function setup(opts = {}) {
   const controlServer = new StubControlServer();
   if (opts.civ) controlServer.civ = opts.civ;
   const playback = new StubPlayback();
-  const audioBridge = { sampleRate: opts.sampleRate ?? 48000, playback };
+  const audioBridge = { sampleRate: opts.sampleRate ?? 48000, playback, writeGenerated: (pcm) => playback.write(pcm) };
   const bridge = new TtyBridge({ controlServer, audioBridge, pttReleaseMarginMs: 20 });
   bridge.start();
   return { controlServer, playback, bridge };
@@ -112,7 +112,8 @@ const statuses = (cs) => cs.broadcasts.filter((b) => b.type === EVENT.TTY_TX_STA
   {
     const { controlServer } = setup();
     await new Promise((r) => {
-      const t = new TtyBridge({ controlServer, audioBridge: { sampleRate: 48000, playback: new StubPlayback() }, pttReleaseMarginMs: 5 });
+      const pb = new StubPlayback();
+      const t = new TtyBridge({ controlServer, audioBridge: { sampleRate: 48000, playback: pb, writeGenerated: (pcm) => pb.write(pcm) }, pttReleaseMarginMs: 5 });
       t.send({ mode: 'RTTY', text: 'A~' }).then(r);
     });
     const st = statuses(controlServer)[0];

@@ -47,6 +47,7 @@ function makeStubAudioBridge() {
     capture: new StubCapture(),
     playback: new StubPlayback(),
     sampleRate: 48000,
+    writeGenerated(pcm) { this.playback.write(pcm); },
     rxMuted: false,
     txMuted: false,
     setRxMuted(muted) {

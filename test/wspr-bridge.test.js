@@ -134,7 +134,7 @@ function setup(opts = {}) {
   const wsprnet = { upload: async (slot) => { uploads.push(slot); return { sent: 1, spots: 1 }; } };
   const bridge = new WsprBridge({
     controlServer,
-    audioBridge: { capture, playback, sampleRate: 48000 },
+    audioBridge: { capture, playback, sampleRate: 48000, writeGenerated: (b) => playback.write(b) },
     callsign: 'VK3TR',
     grid: 'QF22LB',
     slotClock,

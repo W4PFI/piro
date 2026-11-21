@@ -127,7 +127,7 @@ function station(call, opts = {}) {
   };
   const bridge = new VaraBridge({
     controlServer,
-    audioBridge: { capture, playback, sampleRate: opts.rate ?? 48000 },
+    audioBridge: { capture, playback, sampleRate: opts.rate ?? 48000, writeGenerated: (b) => playback.write(b) },
     callsign: call,
     latencyMs: 100,
     leadMs: 0,

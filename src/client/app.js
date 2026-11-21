@@ -982,6 +982,16 @@ link.addEventListener('rtty-reversed', (event) => {
 link.addEventListener('rnnoise-level', (event) => {
   setRnnoiseButtonLevel(event.detail.level);
 });
+// TX Adjust is one shared gain for the single radio (server-owned): when
+// any browser changes it the server broadcasts the new value, so every
+// other browser's slider and readout follow. Display only -- don't echo it
+// back to the server, which would loop. See REQUEST.SET_DIGITAL_TX_GAIN.
+link.addEventListener('digital-tx-gain', (event) => {
+  const db = event.detail && event.detail.db;
+  if (!Number.isFinite(db)) return;
+  digitalTxGainDb = db;
+  renderDigitalTxGain();
+});
 // Keeps the "HamNoise" button in sync when another connected client (or a
 // page reload of this one) changes it — same pattern as rnnoise-level
 // above. Also fires when AudioBridge itself forces HamNoise off because
@@ -1124,6 +1134,22 @@ link.addEventListener('connected', (event) => {
   tunerBtn.disabled = false;
   tuneBtn.disabled = false;
   txPowerSelect.disabled = false;
+  digitalTxGainBtn.disabled = false;
+  // The attenuation floor is server-configured (DIGITAL_TX_GAIN_MIN_DB):
+  // set the slider min from it, and clamp any deeper remembered value.
+  if (Number.isFinite(data.digitalTxGainMinDb)) {
+    digitalTxGainMinDb = data.digitalTxGainMinDb;
+    digitalTxGainSlider.min = String(digitalTxGainMinDb);
+  }
+  // Adopt the server-owned TX Adjust value (one shared gain for the single
+  // radio, broadcast to every browser) rather than pushing this browser's
+  // own remembered value -- doing that on each connect would silently
+  // override whatever another browser had already set on the shared radio.
+  // See EVENT.DIGITAL_TX_GAIN and REQUEST.SET_DIGITAL_TX_GAIN.
+  if (Number.isFinite(data.digitalTxGainDb)) digitalTxGainDb = data.digitalTxGainDb;
+  if (digitalTxGainDb < digitalTxGainMinDb) digitalTxGainDb = digitalTxGainMinDb;
+  renderDigitalTxGain();
+  syncTxAdjustVisible();
   rxGainSlider.disabled = false;
   for (const btn of Object.values(freqStepButtonEls)) btn.disabled = false;
   for (const control of FUNCTION_CONTROLS) {
@@ -1760,6 +1786,8 @@ function updateSsbChip() {
     sstvModeBtn.classList.toggle('chip--active', sstvActive || faxActive || easypalActive);
     sstvModeBtn.textContent = sstvActive ? 'SSTV' : easypalActive ? 'EasyPal' : faxActive ? 'Fax' : 'Image';
   }
+  syncTxAdjustVisible();
+  syncMicGainVisible();
 }
 
 function updateModeButtons(mode) {
@@ -5565,10 +5593,112 @@ micGainSelect.addEventListener('change', () => {
     // not remembered
   }
 });
+
+// --- Digital TX gain (FT8/FT4/WSPR/TTY/...) ---
+// A software drive control for the server-generated transmit audio, styled
+// and optioned like Mic gain. Server-owned: one shared value for the single
+// radio, not per browser. The server scales the generated PCM (see
+// audio-bridge.js#writeGenerated), broadcasts changes to every client, and
+// sends the current value in the connect snapshot. The digital-mode
+// equivalent of WSJT-X's Pwr slider: set it while watching ALC.
+// Does not affect voice/mic TX.
+const digitalTxGainEl = document.getElementById('digital-tx-gain');
+const digitalTxGainBtn = document.getElementById('digital-tx-gain-btn');
+const digitalTxGainPop = document.getElementById('digital-tx-gain-pop');
+const digitalTxGainSlider = document.getElementById('digital-tx-gain-slider');
+const digitalTxGainReadout = document.getElementById('digital-tx-gain-readout');
+const digitalTxGainClose = document.getElementById('digital-tx-gain-close');
+// Show TX Adjust in the modes whose generated TX audio the server scales:
+// the app/digital modes (FT8/FT4/WSPR/JS8/VARA/SSTV/EasyPal/FreeDV/JTTY/
+// Olivia/Hell), AND plain RTTY -- a hardware mode, so it sets none of the
+// app-mode flags, but TtyBridge still scales its AFSK audio. Hidden in
+// plain voice/CW where it does nothing. Re-run from updateSsbChip() on
+// every app-mode and radio-mode transition (updateModeButtons() calls it),
+// so entering or leaving RTTY updates it too.
+function syncTxAdjustVisible() {
+  digitalTxGainEl.hidden = !(appModeActive() || ttyMode() === 'RTTY');
+  if (digitalTxGainEl.hidden) closeTxAdjustPop();
+}
+// TX Adjust is attenuation-only (0 down to a server-configured floor,
+// DIGITAL_TX_GAIN_MIN_DB, default -50 dB): generated audio sits at a
+// reference level, and with the radio's USB MOD Level maxed
+// (CIV_MAXIMIZE_USB_LEVELS) you need big cuts to bring ALC down. At rest the
+// control shows just the dB value; tapping it opens a 1 dB slider (like
+// WSJT-X's Pwr) -- compact, and easier than an always-shown slider on mobile.
+// Server-owned: one gain for the single radio, shared across browsers. The
+// confirmed value arrives in the connect snapshot and the DIGITAL_TX_GAIN
+// broadcast (ws-server.js). It is NOT persisted per browser -- a remembered
+// per-device value would fight the server's shared value. 0 (unity) until
+// the server reports otherwise.
+let digitalTxGainDb = 0;
+// Attenuation floor, overwritten from server config on connect (default
+// matches the server's own DIGITAL_TX_GAIN_MIN_DB default).
+let digitalTxGainMinDb = -50;
+function fmtTxGain(db) {
+  return db < 0 ? `\u2212${-db} dB` : '0 dB';
+}
+function renderDigitalTxGain() {
+  const label = fmtTxGain(digitalTxGainDb);
+  digitalTxGainBtn.textContent = label;
+  digitalTxGainReadout.textContent = label;
+  digitalTxGainSlider.value = String(digitalTxGainDb);
+}
+renderDigitalTxGain();
+function openTxAdjustPop() {
+  digitalTxGainPop.hidden = false;
+  digitalTxGainBtn.setAttribute('aria-expanded', 'true');
+  digitalTxGainBtn.classList.add('tx-power__value--open');
+}
+function closeTxAdjustPop() {
+  digitalTxGainPop.hidden = true;
+  digitalTxGainBtn.setAttribute('aria-expanded', 'false');
+  digitalTxGainBtn.classList.remove('tx-power__value--open');
+}
+digitalTxGainBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (digitalTxGainPop.hidden) openTxAdjustPop();
+  else closeTxAdjustPop();
+});
+// Keep interactions inside the popover from closing it; tap elsewhere (or
+// Escape) closes it.
+digitalTxGainPop.addEventListener('click', (e) => e.stopPropagation());
+digitalTxGainClose.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeTxAdjustPop();
+});
+document.addEventListener('click', () => {
+  if (!digitalTxGainPop.hidden) closeTxAdjustPop();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !digitalTxGainPop.hidden) closeTxAdjustPop();
+});
+// Live preview while dragging: update only the labels, not the confirmed
+// digitalTxGainDb, so a rejected change can snap back (see 'change').
+digitalTxGainSlider.addEventListener('input', () => {
+  const label = fmtTxGain(Number(digitalTxGainSlider.value));
+  digitalTxGainReadout.textContent = label;
+  digitalTxGainBtn.textContent = label;
+});
+// On release, ask the server to set it. The server owns the value and
+// broadcasts it back (DIGITAL_TX_GAIN), which is what updates
+// digitalTxGainDb -- so if the request is rejected (e.g. PiRO paused for
+// another LAN client) we snap the UI back to the last confirmed value
+// rather than leave the slider showing a gain the radio never adopted.
+digitalTxGainSlider.addEventListener('change', () => {
+  const requested = Number(digitalTxGainSlider.value);
+  link.request('setDigitalTxGain', { db: requested }).catch((err) => {
+    showError(err.message);
+    renderDigitalTxGain();
+  });
+});
 // Visible exactly when the PTT button is: the several places that show or
 // hide the PTT button and its section don't each need to know about it.
 function syncMicGainVisible() {
-  micGainEl.hidden = pttBtn.hidden || pttSectionEl.hidden;
+  // SSTV transmits server-generated tones in DATA MODE, which bypasses the
+  // mic entirely (see sstv-tx-bridge.js) -- the mic-gain control does nothing
+  // there, so hide it. TX Adjust is the drive control for SSTV. Re-run from
+  // updateSsbChip() so it tracks the SSTV mode toggle.
+  micGainEl.hidden = pttBtn.hidden || pttSectionEl.hidden || sstvActive;
 }
 const micGainObserver = new MutationObserver(syncMicGainVisible);
 micGainObserver.observe(pttBtn, { attributes: true, attributeFilter: ['hidden'] });

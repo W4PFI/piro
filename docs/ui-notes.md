@@ -5773,3 +5773,59 @@ also in v142.
   caller-role Tx2 reply, and `trimMessageGrid()` across CQ, reply, 4-char
   no-op, reports/73, a grid-less CQ, and free text.
 - Service-worker cache v149.
+### TX Adjust: mic-gain hidden in SSTV (v151)
+
+Follow-up to the TX Adjust work. SSTV transmits server-generated tones
+with the radio forced into DATA MODE, so the browser microphone is never
+in the SSTV transmit path (see sstv-tx-bridge.js) -- the mic-gain control
+did nothing while SSTV was selected. It is now hidden when `sstvActive`
+(re-run from updateSsbChip() so it tracks the mode toggle); TX Adjust is
+the drive control for SSTV.
+
+FreeDV/RADE keeps both controls, because there they do different jobs:
+mic-gain sets the voice level feeding the RADE encoder, and TX Adjust
+sets the drive of the encoded modem waveform (the audio the radio and its
+ALC actually see).
+
+- Client only: app.js. Service-worker cache v151.
+
+### TX Adjust: software drive for digital modes (v152)
+
+The complete TX Adjust feature (the earlier commits added the control; this
+section documents it and folds in review fixes).
+
+**What it is.** A software gain on the server-generated digital TX audio
+(FT8/FT4/WSPR/JS8/RTTY/Olivia/Hell/VARA/SSTV/EasyPal/RADE) -- the
+digital-mode equivalent of WSJT-X's Pwr slider. Set your drive while
+watching ALC without touching the radio. `AudioBridge.writeGenerated()` is
+the single chokepoint that scales the PCM (0 dB = unity); mic/voice audio
+is never touched. Attenuation-only (0 down to `DIGITAL_TX_GAIN_MIN_DB`,
+default -50 dB, clamped `[-120, -1]`): with the radio's USB MOD level maxed
+you need sizeable cuts to bring ALC down, and boosting generated audio
+would only clip.
+
+**Server-owned, not per-browser.** One gain for the single radio. A change
+is sent with `setDigitalTxGain` (range-validated in ws-server.js), stored on
+the server, and broadcast (`DIGITAL_TX_GAIN`) to every client; the connect
+snapshot carries the current value so a joining browser adopts it. The
+client keeps no localStorage copy -- that would fight the shared value.
+
+**Review fixes in this build.**
+- The slider drag is now a preview: the confirmed value only changes when
+  the server acknowledges, and a rejected change (e.g. PiRO paused for
+  another LAN client) snaps the UI back -- the README's server-as-source-
+  of-truth rule.
+- Removed the obsolete per-browser localStorage persistence.
+- The popover note now reads "next transmission (next audio frame in
+  FreeDV)": buffered modes build the whole waveform at send time, but RADE
+  streams frames, so a change there takes effect mid-over.
+- Fixed a merge artifact: a missing CSS brace on `.tx-power__value--open`
+  had nested the desktop column-resizer rules under it.
+
+**Config.** `DIGITAL_TX_GAIN_MIN_DB` (README env-var table) sets the floor.
+
+**Tests.** digital-tx-gain.test.js: `writeGenerated()` attenuates by the set
+dB, 0 dB is unity passthrough, and positive gain is clamped; plus the
+updated mode-bridge stubs. Server range-validation lives in ws-server.js;
+the client restore-on-reject is UI wiring, checked by pausing PiRO for a
+second LAN client. Service-worker cache v152.

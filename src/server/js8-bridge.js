@@ -457,7 +457,7 @@ class Js8Bridge {
         await this._unkey();
         return;
       }
-      this.audioBridge.playback.write(pcm);
+      this.audioBridge.writeGenerated(pcm);
       const own = { slotStartMs, freq: txHz, snr: null, text: f.text, own: true, first: (f.bits & 1) === 1, last: (f.bits & 2) === 2 };
       this._remember([own]);
       this.controlServer.broadcastJsonEvent(EVENT.JS8_DECODES, { slotStartMs, dialHz: this.controlServer.state.frequency, decodes: [own] });

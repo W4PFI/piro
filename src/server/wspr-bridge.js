@@ -692,7 +692,7 @@ class WsprBridge {
       this._setStatus({ phase: 'tx', txMessage: message, txStartMs: slotStartMs + TX_START_MS, txDurationSec: Math.round(durationSec * 10) / 10 });
       await wait(slotStartMs + TX_START_MS - this.now());
       if (tx.aborted) return;
-      this.audioBridge.playback.write(pcm);
+      this.audioBridge.writeGenerated(pcm);
       if (civ) {
         stopWatch = watchDataMode(civ, {
           intervalMs: this.dataWatchMs,

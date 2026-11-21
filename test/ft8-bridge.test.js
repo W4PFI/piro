@@ -66,7 +66,8 @@ class StubPlayback {
 }
 
 function makeStubAudioBridge() {
-  return { capture: new StubCapture(), playback: new StubPlayback(), sampleRate: 48000 };
+  const playback = new StubPlayback();
+  return { capture: new StubCapture(), playback, sampleRate: 48000, writeGenerated: (pcm) => playback.write(pcm) };
 }
 
 // A fake SlotClock with a manually-firable 'boundary' event and a

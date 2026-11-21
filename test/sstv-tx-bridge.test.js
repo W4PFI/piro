@@ -57,7 +57,7 @@ class StubControlServer extends EventEmitter {
 function setup({ mode = 'R8BW', civ = new StubCiv(), ...opts } = {}) {
   const controlServer = new StubControlServer(civ);
   const playback = { writes: [], restarts: 0, write(b) { this.writes.push(b); }, restart() { this.restarts++; } };
-  const bridge = new SstvTxBridge({ controlServer, audioBridge: { sampleRate: 48000, playback }, mode, callsign: 'VK3TR', pttReleaseMarginMs: 20, ...opts });
+  const bridge = new SstvTxBridge({ controlServer, audioBridge: { sampleRate: 48000, playback, writeGenerated: (b) => playback.write(b) }, mode, callsign: 'VK3TR', pttReleaseMarginMs: 20, ...opts });
   bridge.start();
   return { controlServer, playback, bridge, civ };
 }

@@ -193,7 +193,7 @@ function slot(signals, noiseRms = 1000) {
     const capture = new EventEmitter();
     const played = [];
     let restarts = 0;
-    const audioBridge = { sampleRate: RATE, capture, playback: { write: (b) => played.push(b), restart: () => restarts++ } };
+    const audioBridge = { sampleRate: RATE, capture, playback: { write: (b) => played.push(b), restart: () => restarts++ }, writeGenerated(b) { this.playback.write(b); } };
     const events = [];
     const ptt = [];
     const spots = [];

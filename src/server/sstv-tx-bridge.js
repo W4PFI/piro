@@ -229,7 +229,7 @@ class SstvTxBridge {
         });
       }
       if (!tx.aborted) {
-        this.audioBridge.playback.write(pcm);
+        this.audioBridge.writeGenerated(pcm);
         if (civ) {
           stopWatch = watchDataMode(civ, {
             intervalMs: this.dataWatchMs,

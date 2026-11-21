@@ -234,7 +234,7 @@ async function run() {
     const cs = server(radio);
     const bridge = new SstvTxBridge({
       controlServer: cs,
-      audioBridge: { sampleRate: 48000, playback: playback() },
+      audioBridge: { sampleRate: 48000, playback: playback(), writeGenerated(b) { this.playback.write(b); } },
       mode: 'R8BW',
       callsign: 'VK3TR',
       txPowerW: 10,
@@ -296,7 +296,7 @@ async function run() {
     const cs = server(radio);
     const bridge = new EasypalTxBridge({
       controlServer: cs,
-      audioBridge: { sampleRate: 48000, playback: playback() },
+      audioBridge: { sampleRate: 48000, playback: playback(), writeGenerated(b) { this.playback.write(b); } },
       callsign: 'VK3TR',
       txPowerW: 10,
       pttReleaseMarginMs: 1,
@@ -318,7 +318,7 @@ async function run() {
   {
     const radio = new Radio({ mode: 'RTTY', freq: 7050000 });
     const cs = server(radio);
-    const bridge = new TtyBridge({ controlServer: cs, audioBridge: { sampleRate: 48000, playback: playback() }, pttReleaseMarginMs: 1, dataSettleMs: 0, dataWatchMs: 1000000 });
+    const bridge = new TtyBridge({ controlServer: cs, audioBridge: { sampleRate: 48000, playback: playback(), writeGenerated(b) { this.playback.write(b); } }, pttReleaseMarginMs: 1, dataSettleMs: 0, dataWatchMs: 1000000 });
     bridge.start();
     radio.rejectOff = 3;
     await quiet(() => bridge.send({ mode: 'RTTY', text: 'E' }).catch(() => {}));
@@ -353,7 +353,7 @@ async function run() {
     Object.assign(clock, { start() {}, stop() {}, nextSlotStart: () => 30000 });
     const bridge = new Js8Bridge({
       controlServer: cs,
-      audioBridge: { sampleRate: 48000, capture, playback: playback() },
+      audioBridge: { sampleRate: 48000, capture, playback: playback(), writeGenerated(b) { this.playback.write(b); } },
       callsign: 'VK3TR',
       grid: 'QF22',
       slotClock: clock,
@@ -396,7 +396,7 @@ async function run() {
     const slotClock = Object.assign(new EventEmitter(), { currentSlotStart: () => 0, start() {}, stop() {} });
     const bridge = new WsprBridge({
       controlServer: cs,
-      audioBridge: { capture: new EventEmitter(), playback: playback(), sampleRate: 48000 },
+      audioBridge: { capture: new EventEmitter(), playback: playback(), sampleRate: 48000, writeGenerated(b) { this.playback.write(b); } },
       callsign: 'VK3TR',
       grid: 'QF22LB',
       slotClock,
@@ -433,7 +433,7 @@ async function run() {
     const slotClock = Object.assign(new EventEmitter(), { currentSlotStart: () => 0, start() {}, stop() {} });
     const bridge = new WsprBridge({
       controlServer: cs,
-      audioBridge: { capture: new EventEmitter(), playback: playback(), sampleRate: 48000 },
+      audioBridge: { capture: new EventEmitter(), playback: playback(), sampleRate: 48000, writeGenerated(b) { this.playback.write(b); } },
       callsign: 'VK3TR',
       grid: 'QF22LB',
       slotClock,

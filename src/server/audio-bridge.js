@@ -256,6 +256,9 @@ class AudioBridge extends EventEmitter {
     this._onClientGone = (ws) => this._forgetClient(ws);
     this._onRnnoiseLevel = (level) => this.setRnnoiseLevel(level);
     this._onHamNoiseEnabled = (enabled) => this.setHamNoiseEnabled(enabled);
+    // Software gain (linear) on generated digital TX audio; 1 = 0 dB = unity.
+    this._digitalTxGainLinear = 1;
+    this._onDigitalTxGain = (db) => this.setGeneratedTxGainDb(db);
 
     this._wire();
   }
@@ -280,6 +283,41 @@ class AudioBridge extends EventEmitter {
    */
   setTxMuted(muted) {
     this._txMuted = muted;
+  }
+
+  /**
+   * Software gain (dB) on the server-generated digital TX audio
+   * (FT8/FT4/WSPR/TTY/VARA/SSTV/EasyPal/RADE), set via
+   * REQUEST.SET_DIGITAL_TX_GAIN. Like WSJT-X's Pwr slider; applied in
+   * writeGenerated(). Does not touch mic/voice audio. 0 dB = unity.
+   */
+  setGeneratedTxGainDb(db) {
+    const clamped = Math.max(-120, Math.min(0, Number(db) || 0));
+    this._digitalTxGainLinear = Math.pow(10, clamped / 20);
+  }
+
+  /**
+   * Writes generated (modem) TX audio to playback, scaled by the
+   * digital TX gain. Mode bridges call this instead of
+   * playback.write() so the gain reaches every digital mode from one
+   * place; mic passthrough keeps using playback.write() and is
+   * unaffected. S16LE little-endian PCM in, clamped to int16.
+   */
+  writeGenerated(pcm) {
+    const g = this._digitalTxGainLinear;
+    if (g === 1) {
+      this.playback.write(pcm);
+      return;
+    }
+    const out = Buffer.allocUnsafe(pcm.length);
+    const n = pcm.length - (pcm.length % 2);
+    for (let i = 0; i < n; i += 2) {
+      let s = Math.round(pcm.readInt16LE(i) * g);
+      if (s > 32767) s = 32767;
+      else if (s < -32768) s = -32768;
+      out.writeInt16LE(s, i);
+    }
+    this.playback.write(out);
   }
 
   /**
@@ -696,6 +734,7 @@ class AudioBridge extends EventEmitter {
     // own 'rtty-reversed' subscription (see rtty-decoder-bridge.js).
     this.controlServer.on('rnnoise-level', this._onRnnoiseLevel);
     this.controlServer.on('hamnoise-enabled', this._onHamNoiseEnabled);
+    this.controlServer.on('digital-tx-gain', this._onDigitalTxGain);
   }
 
   /**
@@ -804,6 +843,7 @@ class AudioBridge extends EventEmitter {
     this.controlServer.off('client-disconnected', this._onClientGone);
     this.controlServer.off('rnnoise-level', this._onRnnoiseLevel);
     this.controlServer.off('hamnoise-enabled', this._onHamNoiseEnabled);
+    this.controlServer.off('digital-tx-gain', this._onDigitalTxGain);
     if (this.civ) this.civ.off('mode', this._onCivMode);
     if (this._rnnoiseFilter) {
       this._rnnoiseFilter.stop();

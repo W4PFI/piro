@@ -189,7 +189,7 @@ function setup({ civ = new StubCiv(), ...opts } = {}) {
   const playback = { writes: [], restarts: 0, write(b) { this.writes.push(b); }, restart() { this.restarts++; } };
   const bridge = new EasypalTxBridge({
     controlServer,
-    audioBridge: { sampleRate: 48000, playback },
+    audioBridge: { sampleRate: 48000, playback, writeGenerated: (b) => playback.write(b) },
     settings: { mode: 'B', qam: 16 },
     rsType: 'rs2',
     seconds: 40,

@@ -2033,6 +2033,81 @@ button {
   display: none;
 }
 
+/* TX Adjust: a compact dB value that opens a slider popover on tap. */
+#digital-tx-gain {
+  position: relative;
+}
+.tx-power__value {
+  cursor: pointer;
+}
+.tx-adjust-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 200px;
+  max-width: 70vw;
+  padding: 8px 10px;
+  background: var(--panel-raised);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  z-index: 20;
+}
+.tx-adjust-pop[hidden] {
+  display: none;
+}
+.tx-adjust-pop__slider {
+  flex: 1;
+  min-width: 100px;
+  accent-color: var(--led-green);
+  cursor: pointer;
+}
+/* Most generated modes build the whole waveform once at send time, so a
+   change applies to the NEXT transmission; FreeDV/RADE streams audio
+   frames, so there it takes effect on the next frame, mid-over (see
+   audio-bridge.js writeGenerated and app.js). Full-width caption. */
+.tx-adjust-pop__note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+.tx-adjust-pop__readout {
+  font-size: 0.8rem;
+  min-width: 3.3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.tx-adjust-pop__close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tx-adjust-pop__close:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.tx-power__value--open {
+  outline: 2px solid var(--led-green);
+  outline-offset: 1px;
+}
 
 /* Draggable decode-table columns (desktop/wide view only; see
    src/client/table-resize.js). Phones and narrow windows never receive

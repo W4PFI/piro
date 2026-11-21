@@ -14,7 +14,7 @@ Hamlib, no separate audio server and no extra apps.
 Written by VK3TR. Licensed AGPL-3.0-only (see
 [Licence](#licence)).
 
-**Current build: v149.** This is the version the app shows next to its title.
+**Current build: v152.** This is the version the app shows next to its title.
 It is the `CACHE_NAME` number in `src/client/sw.js`, which goes up with every
 change to the web app.
 
@@ -588,6 +588,14 @@ From the top:
   audio is made on the Pi. Above about 80% of full scale, peaks are
   rounded off rather than clipped hard. Watch the **ALC** meter while you
   talk to set it. Not tested on air.
+- **TX Adjust**: software drive for the digital and data modes (FT8/FT4,
+  WSPR, JS8, RTTY, SSTV, FreeDV and the rest) — the counterpart to
+  **Mic** for the audio PiRO generates on the Pi, so it shows only in those
+  modes. A compact dB value; tap it for a slider. Attenuation only, 0 dB
+  down to a floor (`DIGITAL_TX_GAIN_MIN_DB`, −50 dB by default): like
+  WSJT-X's Pwr slider, set it while watching the **ALC** meter. Unlike
+  **Mic**, it is one shared setting for the radio, so every browser sees the
+  same value.
 - **Power**: 100, 75, 50, 25 or 5 W (1 to 5 W in WSPR).
 - **Spectrum scope and waterfall**, if `CIV_SCOPE_ENABLED=true` and your
   radio sends scope data. It stays centred on your frequency. **Scope
@@ -2018,6 +2026,7 @@ All settings are environment variables. For the systemd service they go in
 | `RADE_TX_BIN`, `RADE_RX_BIN`, `LPCNET_DEMO_BIN` | `radae_tx`, `radae_rx`, `lpcnet_demo` | Locations of the FreeDV RADE programs. |
 | `RADE_VERSION` | `v1` | `v1` (stable) or `v2` (under development; both ends must match). |
 | `RADE_TX_GAIN` | `4` | Transmit drive multiplier for RADE. |
+| `DIGITAL_TX_GAIN_MIN_DB` | `-50` | Floor (most-negative dB) of the **TX Adjust** control for generated digital modes (FT8/FT4/WSPR/JS8/RTTY/SSTV/FreeDV/…). Attenuation-only; clamped to `[-120, -1]`. |
 | `FREEDV_REPORTER_ENABLED` | on | `0` or `false` stops any reporting to the FreeDV Reporter. Reporting also needs the "FDV Spot" box ticked in the UI. |
 | `FREEDV_REPORTER_HOST` | public service | Only for testing against your own Reporter server. |
 
@@ -2743,7 +2752,11 @@ browser may be at most 8 MiB (the largest real one, an EasyPal picture,
 is under 6 MB); a bigger one closes that browser's connection (code 1009).
 `setFrequency` takes a frequency in Hz from 1 to 9,999,999,999 (CI-V's 10
 digits), rounded to whole Hz; whether the radio covers it is up to the
-radio. `cwKey` (`{session, t, d}`) is one CW paddle element: the server
+radio. `setDigitalTxGain` (`{db}`) sets the software drive on PiRO’s
+generated digital audio; it is validated to the attenuation range (0 dB down
+to `DIGITAL_TX_GAIN_MIN_DB`), kept as one shared value for the radio,
+broadcast as `digital-tx-gain`, and included in the `connected` snapshot as
+`digitalTxGainDb`. `cwKey` (`{session, t, d}`) is one CW paddle element: the server
 holds it `CW_PADDLE_DELAY_MS` and keys it on its own clock; `cw-keying`
 (`{active}`) is broadcast when the paddle starts and stops keying.
 `transmitting` (`{active}`, also in the `connected` snapshot) is broadcast
