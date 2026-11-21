@@ -5773,3 +5773,39 @@ also in v142.
   caller-role Tx2 reply, and `trimMessageGrid()` across CQ, reply, 4-char
   no-op, reports/73, a grid-less CQ, and free text.
 - Service-worker cache v149.
+
+### Browser voice TX in DATA mode (VOICE_TX_DATA_MODE)
+
+Server-only, opt-in (off by default). Lets the browser microphone transmit
+plain SSB voice on an IC-7300.
+
+**The problem.** The Pi feeds the radio over USB, but the IC-7300 only
+modulates from USB audio in **DATA mode** (USB-D/LSB-D). Plain SSB is DATA
+OFF, where the radio modulates from the **front-panel mic** and ignores the
+USB audio -- so a browser voice PTT keyed the radio but nothing went out.
+(The digital modes work because they already force DATA mode on themselves.)
+
+**The option.** With `VOICE_TX_DATA_MODE=1`, a browser voice PTT
+(REQUEST.SET_PTT) in an SSB mode forces DATA mode on -- confirmed before
+keying, with the same `civ/data-mode-guard.js#ensureDataMode()` the digital
+bridges use -- so the USB audio modulates. It is scoped to **USB/LSB only**:
+AM and FM have no DATA sub-mode on the IC-7300, so the radio can't route USB
+audio there (forcing the DATA flag would do nothing useful). DATA mode is
+left on after release -- RX is unaffected and it avoids re-confirming every
+over; a plain mode change (the `06` command) turns it back off.
+
+**Mic gain, not TX Adjust.** Voice goes out through the mic path
+(setMicGainDb -> tx-pcm -> aplay), so **Mic gain** sets the drive/ALC. TX
+Adjust only scales the generated digital audio (writeGenerated) and does
+nothing for voice.
+
+**Reads the real DATA state.** `_ensureVoiceTxDataMode()` calls
+ensureDataMode (which reads the radio back) rather than trusting the cached
+`this.state.dataMode`, which a mode change can leave stale -- the bug that
+showed up as "USB works, LSB doesn't" after USB-D was left on.
+
+- Server only: `src/server/ws-server.js`, `src/server/index.js`. No client
+  change, so no service-worker bump. Env var in the README table.
+- Tested on air (IC-7300), over an HTTPS connection (the browser microphone
+  needs a secure context): USB and LSB voice both transmit from the browser
+  mic with the option on.

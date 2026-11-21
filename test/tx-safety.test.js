@@ -170,6 +170,27 @@ async function run() {
     cs.close();
   }
 
+  // VOICE_TX_DATA_MODE: a release that arrives while ensureDataMode() is
+  // still settling must cancel the key-down, not leave the radio keyed.
+  {
+    const radio = new Radio();
+    const cs = server(radio, { voiceTxDataMode: true });
+    cs.state.mode = 'USB';
+    cs.state.dataMode = false;
+    radio.dataMode = false;
+    const port = await cs.listen();
+    const ws = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((r) => ws.on('open', r));
+    // Key down then release right away, without waiting for the first reply,
+    // so the release lands while the DATA-mode set is still settling.
+    ws.send(JSON.stringify({ id: 'down', type: 'setPtt', value: true }));
+    ws.send(JSON.stringify({ id: 'up', type: 'setPtt', value: false }));
+    await sleep(500); // longer than ensureDataMode()'s settle
+    check(radio.ptt === false && cs.state.ptt === false, 'VOICE_TX_DATA_MODE: a quick release during the DATA-mode settle leaves the radio unkeyed, not stuck transmitting');
+    ws.close();
+    cs.close();
+  }
+
   // settingStillIs (the held-restore check)
   check((await settingStillIs(async () => 5, 5)) && (await settingStillIs(async () => 5.4, 5, 1)) && !(await settingStillIs(async () => 50, 5, 1)), 'settingStillIs: the same value (or within tolerance) is unchanged; another is changed');
   check(!(await settingStillIs(async () => {

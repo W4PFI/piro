@@ -320,6 +320,9 @@ const STATIC_DIR = process.env.STATIC_DIR || path.join(__dirname, '../client');
 // radio/firmware/baud-rate — confirm with test/manual-scope-test.js
 // before enabling this for real use. See docs/civ-notes.md.
 const SCOPE_ENABLED = /^(1|true)$/i.test(process.env.CIV_SCOPE_ENABLED || '');
+// VOICE_TX_DATA_MODE: force IC-7300 DATA mode (USB-D/LSB-D) on a browser
+// voice PTT so the Pi's USB audio modulates SSB voice (off by default).
+const VOICE_TX_DATA_MODE = /^(1|true)$/i.test(process.env.VOICE_TX_DATA_MODE || '');
 
 // Best-effort: forces the radio's own internal "AF output level to
 // ACC/USB" and "MOD input level from USB" CI-V settings to maximum (255)
@@ -475,6 +478,7 @@ async function main() {
     rnnoiseLevelCount: RNNOISE_LEVEL_COUNT,
     sourceCodeUrl: SOURCE_CODE_URL,
     allowedOrigins: ALLOWED_ORIGINS,
+    voiceTxDataMode: VOICE_TX_DATA_MODE,
   });
   if (lan) {
     controlServer.on('client-connected', (ws) => {

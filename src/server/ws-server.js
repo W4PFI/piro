@@ -8,6 +8,7 @@ const https = require('https');
 const { EventEmitter } = require('events');
 const { WebSocketServer } = require('ws');
 const { REQUEST, EVENT, BINARY_TYPE, makeResult, makeError, makeEvent } = require('./protocol');
+const { ensureDataMode } = require('../civ/data-mode-guard');
 const { createStaticHandler } = require('./static-server');
 
 // Operator notes (REQUEST.POST_NOTE)
@@ -177,6 +178,7 @@ class ControlServer extends EventEmitter {
     rnnoiseLevelCount = 5,
     sourceCodeUrl,
     pttWatchdogMs = 10 * 60 * 1000,
+    voiceTxDataMode = false,
     heartbeatMs = HEARTBEAT_MS,
     maxMessageBytes = MAX_MESSAGE_BYTES,
     liveBacklogBytes = LIVE_BACKLOG_BYTES,
@@ -203,6 +205,10 @@ class ControlServer extends EventEmitter {
     // via the constructor for testing, so tests aren't stuck waiting 10
     // real minutes for the timeout to fire — see docs/civ-notes.md.
     this.pttWatchdogMs = pttWatchdogMs;
+    // When on, a browser voice PTT in an SSB mode forces IC-7300 DATA mode
+    // on so the Pi's USB audio modulates (plain SSB uses the front mic).
+    // See VOICE_TX_DATA_MODE. Off by default.
+    this.voiceTxDataMode = voiceTxDataMode;
     this._pttWatchdogTimer = null;
     // The browser that keyed PTT with REQUEST.SET_PTT, while it's keyed.
     // If that browser goes (closed, network lost, heartbeat missed), PTT
@@ -895,6 +901,28 @@ class ControlServer extends EventEmitter {
         case REQUEST.SET_PTT: {
           if (typeof msg.value !== 'boolean') {
             throw new Error('"value" must be a boolean');
+          }
+          // VOICE_TX_DATA_MODE: on an IC-7300 the USB audio only modulates
+          // in DATA mode; plain SSB (DATA off) transmits from the front mic,
+          // so a browser voice PTT would key but send no audio. When the
+          // option is on, force DATA mode on (USB-D/LSB-D) before keying a
+          // voice PTT in an SSB mode so the mic audio actually goes out.
+          // Confirmed before PTT, like the digital bridges.
+          //
+          // Record the latest PTT intent first: WebSocket messages are
+          // handled concurrently, so a release can arrive DURING
+          // ensureDataMode()'s settle below. If it does, its PTT-off runs
+          // while we wait, and keying here afterwards would leave the radio
+          // transmitting with nobody holding the button (until the next
+          // release or the watchdog). So re-check the intent after the wait
+          // and bail if a release superseded this key-down.
+          this._pttDesired = msg.value;
+          if (msg.value) {
+            await this._ensureVoiceTxDataMode();
+            if (this._pttDesired !== true) {
+              ws.send(makeResult(id, { value: false }));
+              break;
+            }
           }
           // Excludes the requesting client from the broadcast, same as
           // setFrequency/setMode above — that client already gets its own
@@ -1692,6 +1720,30 @@ class ControlServer extends EventEmitter {
    * weaken the fail-safe — it's just reusing the one safety mechanism
    * rather than needing a separate exemption path for automated TX.
    */
+  /**
+   * For VOICE_TX_DATA_MODE: if a voice PTT is about to key in an SSB mode
+   * (USB/LSB) force DATA mode on, so the IC-7300 modulates from the USB
+   * audio (the browser mic) rather than the front mic. No-op unless the
+   * option is on, CI-V is present, and the mode is SSB voice. AM/FM have
+   * no DATA sub-mode on the IC-7300, so they are excluded (the radio
+   * can't route USB audio there). Left on after release -- RX is
+   * unaffected and it avoids re-confirming every over; a plain mode
+   * change (the 06 command) turns DATA mode back off. Reads the real
+   * DATA state via ensureDataMode rather than this.state.dataMode, which
+   * a mode change can leave stale. Broadcasts DATA_MODE so the UI shows
+   * USB-D/LSB-D.
+   */
+  async _ensureVoiceTxDataMode() {
+    if (!this.voiceTxDataMode || !this.civ) return;
+    const m = this.state.mode;
+    const modeStr = typeof m === 'string' ? m : m && m.mode;
+    if (modeStr !== 'USB' && modeStr !== 'LSB') return; // SSB voice only
+    await ensureDataMode(this.civ, true);
+    this.state.dataMode = true;
+    this.emit('mode-changed');
+    this._broadcast(makeEvent(EVENT.DATA_MODE, { on: true }));
+  }
+
   async setPttFromServer(on, { except, owner, urgent = false } = {}) {
     if (on) {
       // Never key up in the middle of putting settings back.

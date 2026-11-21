@@ -452,7 +452,13 @@ class SttBridge {
     if (Object.entries(m).some(([k, v]) => k.endsWith('Active') && k !== 'freeDvActive' && v === true)) return null;
     if (m.freeDvActive) return this.radeBridge && cs.freeDvVariant !== '700E' ? this.radeBridge : null;
     const mode = cs.mode?.mode ?? cs.mode;
-    if (!VOICE_MODES.includes(mode) || cs.dataMode) return null;
+    if (!VOICE_MODES.includes(mode)) return null;
+    // cs.dataMode usually means a digital mode (no voice to transcribe),
+    // and the app-mode check above already excluded the real digital
+    // modes. But VOICE_TX_DATA_MODE puts the radio in USB-D *for voice*
+    // and leaves DATA on between overs, so an SSB conversation in DATA
+    // mode is still voice when that option is on -- keep transcribing it.
+    if (cs.dataMode && !this.controlServer.voiceTxDataMode) return null;
     return this.audioBridge.capture;
   }
 

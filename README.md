@@ -2018,6 +2018,7 @@ All settings are environment variables. For the systemd service they go in
 | `RADE_TX_BIN`, `RADE_RX_BIN`, `LPCNET_DEMO_BIN` | `radae_tx`, `radae_rx`, `lpcnet_demo` | Locations of the FreeDV RADE programs. |
 | `RADE_VERSION` | `v1` | `v1` (stable) or `v2` (under development; both ends must match). |
 | `RADE_TX_GAIN` | `4` | Transmit drive multiplier for RADE. |
+| `VOICE_TX_DATA_MODE` | off | `1`/`true`: on a browser voice PTT in **SSB** (USB/LSB), force the radio into DATA mode (USB-D/LSB-D) so the Pi's USB audio modulates. Needed for browser-mic SSB voice on an IC-7300, whose plain-SSB MOD source is the front mic. AM/FM have no DATA sub-mode and are unaffected. |
 | `FREEDV_REPORTER_ENABLED` | on | `0` or `false` stops any reporting to the FreeDV Reporter. Reporting also needs the "FDV Spot" box ticked in the UI. |
 | `FREEDV_REPORTER_HOST` | public service | Only for testing against your own Reporter server. |
 
