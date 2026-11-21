@@ -400,7 +400,7 @@ button {
 .ft8-table__head,
 .ft8-table__row {
   display: grid;
-  grid-template-columns: 4.5em 3em 5em 3.5em 1fr;
+  grid-template-columns: 4.5em 3em 5em 4em 1fr;
   gap: 6px;
   padding: 4px 8px;
 }
@@ -447,6 +447,35 @@ button {
   white-space: nowrap;
 }
 
+/* FT8 decode table: mute the metadata columns (UTC/dt/Freq/SNR) so the
+   decoded message reads as the primary content; keep the message bright. */
+#ft8-table .ft8-table__row > span {
+  color: var(--text-muted);
+}
+#ft8-table .ft8-table__row > span:last-child {
+  color: var(--text);
+}
+
+/* Phones / very narrow windows: the fixed UTC/dt/Freq/SNR columns leave the
+   FT8 message column too narrow to read, so put the message on its own
+   full-width line below the metadata and let it wrap instead of truncating,
+   and widen the UTC column so HH:MM:SS is not clipped. Scoped to #ft8-table;
+   the other decode tables and desktop are unchanged. */
+@media (max-width: 560px) {
+  #ft8-table .ft8-table__head,
+  #ft8-table .ft8-table__row {
+    grid-template-columns: 5.6em 2.8em 5em 1fr;
+  }
+  #ft8-table .ft8-table__head > span:last-child,
+  #ft8-table .ft8-table__row > span:last-child {
+    grid-column: 1 / -1;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+  }
+}
+
 .ft8-table__empty {
   padding: 10px 8px;
   color: var(--text-muted);
@@ -481,6 +510,38 @@ button {
   cursor: not-allowed;
 }
 
+/* "Your turn": a guided reply (your report, your 73, ...) is staged and
+   waiting for the operator to press Send (see app.js applyFt8Suggestion /
+   sendFt8Message). Pulses amber so it's obvious it's time to send, even
+   with eyes on the waterfall. Cleared the moment the message goes out. */
+.ft8-composer__send--attention {
+  border-color: var(--led-amber);
+  color: var(--led-amber);
+  background: color-mix(in srgb, var(--led-amber) 14%, var(--panel-raised));
+  animation: ft8-send-attention 1.4s ease-in-out infinite;
+}
+
+/* Scheduled TX can still be pulled back: the Send button becomes a red
+   Stop (see app.js setFt8SendMode). Red, not pulsing -- it's an action
+   that's available, not a prompt demanding attention. */
+.ft8-composer__send--cancel {
+  border-color: var(--led-red);
+  color: var(--led-red);
+  background: color-mix(in srgb, var(--led-red) 14%, var(--panel-raised));
+}
+
+@keyframes ft8-send-attention {
+  50% {
+    box-shadow: 0 0 7px 1px var(--led-amber);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ft8-composer__send--attention {
+    animation: none;
+  }
+}
+
 .ft8-status {
   margin: 0;
   font-size: 0.75rem;
@@ -489,6 +550,13 @@ button {
 
 .ft8-status[hidden] {
   display: none;
+}
+
+/* On the air: the TX status line turns red while actually transmitting
+   (status 'sending'), a clear keyed-up indicator. */
+.ft8-status--sending {
+  color: var(--led-red);
+  font-weight: 600;
 }
 
 /* Guided-QSO progress line (see src/client/ft8-qso.js) — distinct from
@@ -2134,4 +2202,17 @@ button {
   .ft8-col-resizer.is-dragging::after {
     background: var(--led-green);
   }
+}
+
+/* Guided QSO: the partner's reply, highlighted as the row to act on
+   (double-click to send the staged next message). Green reads as
+   "ready" and stands out from the amber in-QSO rows. Placed after the
+   --qso rules so it wins when a row has both classes. */
+.ft8-table__row--selected {
+  background: color-mix(in srgb, var(--led-green) 16%, transparent);
+  border-left: 3px solid var(--led-green);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--led-green) 40%, transparent);
+}
+.ft8-table__row--selected:hover {
+  background: color-mix(in srgb, var(--led-green) 24%, var(--panel-raised));
 }

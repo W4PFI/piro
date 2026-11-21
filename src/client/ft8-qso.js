@@ -192,6 +192,28 @@ export class Ft8QsoSequencer {
     return this.qso;
   }
 
+  /**
+   * A short, non-imperative line for what the sequence is now waiting to
+   * *receive*, after our staged message is on its way out (scheduled/sending) — used by
+   * app.js to replace the staged-state prompt ("send this reply") once the
+   * operator (or a double-click) has sent it, so an auto-sent reply doesn't
+   * keep reading as if Send is still pending. null when nothing's in
+   * progress to wait for (no QSO and not seeking, or the QSO is complete).
+   */
+  waitingStatus() {
+    if (this.qso) {
+      const p = this.qso.partnerCall;
+      switch (this.qso.step) {
+        case 'awaiting-report': return `Waiting for ${p}'s signal report.`;
+        case 'awaiting-final': return `Waiting for ${p}'s RRR/RR73.`;
+        case 'awaiting-ack': return `Waiting for ${p}'s acknowledgement.`;
+        default: return null; // 'complete' — the QSO is wrapping up
+      }
+    }
+    if (this._seeking) return 'Waiting for a reply to your CQ.';
+    return null;
+  }
+
   /** Clears any in-progress QSO/seeking state — call on leaving FT8 mode, or an explicit "start over". */
   reset() {
     this.qso = null;
@@ -269,13 +291,45 @@ export class Ft8QsoSequencer {
   }
 
   _startFromCq(parsed, decoded) {
-    this.qso = { partnerCall: parsed.cqCall, role: 'caller', step: 'awaiting-report', freqHz: decoded.freq };
+    return this._startCalling(parsed.cqCall, decoded);
+  }
+
+  // Starts a QSO by calling `call` — the station whose CQ we answered, or any
+  // station we heard and chose to work (see startCalling) — with our standard
+  // first transmission, "THEIRCALL MYCALL MYGRID".
+  _startCalling(call, decoded) {
+    this.qso = { partnerCall: call, role: 'caller', step: 'awaiting-report', freqHz: decoded.freq };
     this._seeking = false;
     return this._suggestion(
-      `${parsed.cqCall} ${this.myCall} ${this.myGrid}`,
+      `${call} ${this.myCall} ${this.myGrid}`,
       decoded.freq,
-      `Calling ${parsed.cqCall} — send this reply, then watch for their signal report.`
+      `Calling ${call} — send this reply, then watch for their signal report.`
     );
+  }
+
+  /**
+   * Stages a call to a station we heard that is NOT calling CQ and is NOT
+   * answering us — e.g. one station working another. Clicking such a row
+   * means "I want to work this station": compose our first call to its
+   * sender so the operator can wait for them to finish, then send. Returns a
+   * suggestion, or null if the row isn't a standard message from another
+   * station.
+   */
+  startCalling(decoded) {
+    if (!this.isConfigured || !decoded || typeof decoded.msg !== 'string') return null;
+    const parsed = parseFt8Message(decoded.msg);
+    if (parsed.isCq) return null;
+    if (parsed.toCall === this.myCall) return null;
+    if (!parsed.fromCall || parsed.fromCall === this.myCall) return null;
+    // The parser puts ANY second word in fromCall, so "TNX ROBERT 73" must
+    // not be mistaken for ROBERT calling TNX. Require a real directed
+    // exchange: both calls valid, and a recognized payload (grid / report /
+    // R-report / RRR / RR73 / 73) or a bare two-call directed message.
+    if (!CALLSIGN_RE.test(parsed.fromCall) || !CALLSIGN_RE.test(parsed.toCall)) return null;
+    const recognized = parsed.grid || parsed.report || parsed.ackReport
+      || parsed.isRR73 || parsed.isRRR || parsed.is73 || parsed.tokens.length === 2;
+    if (!recognized) return null;
+    return this._startCalling(parsed.fromCall, decoded);
   }
 
   _startFromReply(parsed, decoded) {

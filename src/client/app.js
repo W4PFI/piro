@@ -4553,13 +4553,36 @@ function exitFt8Mode({ local = false, keepDataMode = false } = {}) {
  * sideband — FT8/FT4 stay on USB on every band (see enterFt8Mode()'s doc
  * comment on why that's correct, unlike FreeDV/voice SSB).
  */
+// Abandons the current guided QSO and returns the composer to a fresh CQ:
+// clears the band-activity table, resets the sequencer, drops the transmit
+// slot-parity lock, hides the QSO status line, and refills the composer with
+// the default CQ. Used when a band change means the station we were working
+// is no longer in front of us (see tuneFt8ToBand).
+function resetFt8QsoToCq() {
+  ft8TableBodyEl.innerHTML = '';
+  ft8Qso.reset();
+  ft8ReplySlotMs = null;
+  ft8ParityLockPartner = null;
+  hideQsoStatus();
+  ft8ComposerInput.value = defaultCqMessage(stationCallsign, stationGrid);
+}
+
 function tuneFt8ToBand(bandName) {
   const hz = ft8FrequencyTable()[bandName];
   if (hz == null) return;
+  // A real band change mid-session leaves behind whatever station we were
+  // working, so abandon the guided QSO and fall back to calling CQ -- but
+  // only AFTER the radio confirms the move (below): the server/radio is the
+  // source of truth, so a rejected tune (we stay put) must leave the QSO
+  // intact. Not on the first tune when entering FT8 (ft8LastBandName null).
+  const bandChanged = ft8LastBandName != null && bandName !== ft8LastBandName;
   ft8LastBandName = bandName;
   link
     .request('setFrequency', { value: hz })
-    .then(() => updateFrequencyDisplay(hz))
+    .then(() => {
+      updateFrequencyDisplay(hz);
+      if (bandChanged) resetFt8QsoToCq();
+    })
     .catch((err) => showError(`Couldn't tune to ${bandName} ${ft8Variant} frequency: ${err.message}`));
 }
 
@@ -4587,6 +4610,8 @@ function toggleFt8Variant() {
 
   ft8TableBodyEl.innerHTML = '';
   ft8Qso.reset();
+  ft8ReplySlotMs = null;
+  ft8ParityLockPartner = null;
   hideQsoStatus();
 
   if (ft8LastBandName && ft8FrequencyTable()[ft8LastBandName] != null) {
@@ -4983,7 +5008,10 @@ function setFt8UiVisible(active) {
     // next time FT8 mode is entered.
     ft8Qso.reset();
     callAlert.reset();
+    ft8ReplySlotMs = null;
+    ft8ParityLockPartner = null;
     hideQsoStatus();
+    ft8SendBtn.classList.remove('ft8-composer__send--attention');
     currentQsoFreqHz = null;
     scopeDisplay.setQsoFreq(null);
   }
@@ -5012,6 +5040,14 @@ function applyFt8Suggestion(suggestion) {
   if (!suggestion) return;
   ft8ComposerInput.value = suggestion.txText;
   if (suggestion.statusText) showQsoStatus(suggestion.statusText);
+  // A guided reply is staged but never auto-sent (see ft8-qso.js) — the
+  // operator's one remaining action is to press Send. Make that
+  // unmistakable when it's their turn (send your report, your 73, ...):
+  // focus the Send button and pulse it, so it's obvious even with eyes on
+  // the waterfall. A double-click auto-send clears this again in
+  // sendFt8Message(); so does leaving FT8 mode.
+  ft8SendBtn.classList.add('ft8-composer__send--attention');
+  ft8SendBtn.focus();
   // Guided suggestions always carry their own tracked frequency in
   // practice (the decoded signal's own freq — see ft8-qso.js); the
   // fallback to the session's persisted default here is just defensive,
@@ -5031,17 +5067,49 @@ function applyFt8Suggestion(suggestion) {
 const FT8_DBLCLICK_MS = 250;
 let ft8RowClickTimer = null;
 function copyFt8RowToComposer(msg, slotStartMs) {
-  // Remember which slot this decode came from, so the reply lands in
-  // the opposite parity slot the station is listening in (see
-  // sendFt8Message() -> replySlotMs, and ft8-bridge.js).
-  if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
+  // Mid-QSO this decode is the partner's reply: ingestDecodes() has
+  // already staged the next message, so keep it rather than copying the
+  // partner's raw text over it. A double-click then just sends it. Our
+  // transmit parity is already locked for this QSO (ft8ParityLockPartner),
+  // so we deliberately do NOT move ft8ReplySlotMs to this decode's slot.
+  const activeQso = ft8Qso.getQso();
+  if (activeQso && isRelatedToQso(msg, activeQso)) {
+    ft8ComposerInput.focus();
+    return;
+  }
   // Guided engagement first: a CQ (or a reply to our own CQ, to pick a
-  // specific caller out of a pileup) prefills the appropriate next
-  // message and tracks the QSO (see ft8-qso.js); anything engage()
-  // doesn't recognize falls back to a plain copy-into-composer.
-  const engaged = ft8Qso.engage(msg);
-  if (engaged) applyFt8Suggestion(engaged);
-  else ft8ComposerInput.value = msg.msg || '';
+  // specific caller out of a pileup) prefills the appropriate next message
+  // and tracks the QSO. Failing that, startCalling() treats a click on any
+  // other station we heard (one working someone else) as "work this
+  // station" and stages our first call to them, "THEIRCALL MYCALL GRID", so
+  // we can wait for them to finish and then send (see ft8-qso.js). Only a
+  // row that is neither -- free text/telemetry with no callsign -- falls
+  // back to the plain copy-into-composer below.
+  // engage() handles a CQ or a reply addressed to us. startCalling() (work a
+  // station we merely overheard) fires ONLY when idle: while a QSO is active,
+  // a click on an unrelated station must not silently switch partners.
+  const engaged = ft8Qso.engage(msg) || (activeQso ? null : ft8Qso.startCalling(msg));
+  if (engaged) {
+    // Starting (or re-engaging) a QSO: lock our reply slot parity to the
+    // slot we heard this station in, and hold it for the QSO's life.
+    // Engaging a different station's CQ re-locks to the new partner.
+    if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
+    ft8ParityLockPartner = engaged.partnerCall;
+    applyFt8Suggestion(engaged);
+  } else if (!activeQso) {
+    // A plain copy of a row the guided sequence doesn't track, made while
+    // no QSO is in progress: a manual escape hatch to drop the row's text
+    // into the composer to edit and send. Reply opposite its slot, one-off,
+    // with no parity lock.
+    if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
+    ft8ParityLockPartner = null;
+    ft8ComposerInput.value = msg.msg || '';
+  }
+  // Else: a QSO is in progress and this row is not its partner, a CQ, or a
+  // reply to us -- e.g. two other stations' exchange. Leave the staged reply
+  // and the QSO status line untouched rather than overwriting the composer
+  // with text that doesn't match the status (which looked sendable but
+  // wasn't). Just focus the composer.
   ft8ComposerInput.focus();
 }
 
@@ -5053,14 +5121,38 @@ function formatUtcTime(ms) {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
 
+// WSJT-X names the two transmit sequences "Even" and "Odd": Even is the
+// slot starting at :00/:30 of the minute (FT8), Odd the one at :15/:45
+// (every other 7.5 s slot for FT4). Our epoch-based slot parity matches
+// that exactly -- parity 0 = Even, 1 = Odd -- so show the familiar word
+// next to the slot time; a bare UTC timestamp doesn't tell the operator
+// which sequence they are in, or which one a reply is going out in.
+function slotParityLabel(slotStartMs) {
+  if (slotStartMs == null) return '';
+  const slotMs = ft8Variant === 'FT4' ? 7500 : 15000;
+  return Math.floor(slotStartMs / slotMs) % 2 === 0 ? 'Even' : 'Odd';
+}
+
 // The slot (epoch ms) of the decode the operator is answering, so a
 // reply is scheduled in the opposite slot parity -- the one the far
 // station is listening in (see sendFt8Message() and ft8-bridge.js).
 // null for a fresh CQ or a manual send with no specific station.
 let ft8ReplySlotMs = null;
+// The station our transmit-slot parity is locked to for the current QSO.
+// Set when a QSO starts (engaging a CQ, or someone answering our CQ) and
+// held until it ends or a new CQ is engaged, so a later decode that
+// wanders parity can't flip which slot we transmit in. null = no lock.
+let ft8ParityLockPartner = null;
 link.addEventListener('ft8-decodes', (event) => {
   const { slotStartMs, messages } = event.detail || {};
-  ft8SlotTimeEl.textContent = slotStartMs != null ? `slot ${formatUtcTime(slotStartMs)}Z` : '—';
+  ft8SlotTimeEl.textContent = slotStartMs != null ? `slot ${formatUtcTime(slotStartMs)}Z · ${slotParityLabel(slotStartMs)}` : '—';
+  // The whole body is rebuilt below for the new slot, which would reset the
+  // scroll position to the top. Remember where the operator is so we can put
+  // them back at the tail of this handler -- a new slot shouldn't yank the
+  // list out from under them while they're scrolling through it.
+  const ft8Scroller = ft8TableBodyEl.parentElement;
+  const ft8PrevScrollTop = ft8Scroller ? ft8Scroller.scrollTop : 0;
+  const ft8UserScrolled = ft8PrevScrollTop > 4;
   ft8TableBodyEl.innerHTML = '';
   if (!messages || messages.length === 0) {
     const empty = document.createElement('div');
@@ -5081,20 +5173,42 @@ link.addEventListener('ft8-decodes', (event) => {
   // whatever this slot decoded, *before* rendering rows below, so the
   // active-QSO highlight below reflects this slot's state rather than
   // the previous one.
-  applyFt8Suggestion(ft8Qso.ingestDecodes(sorted));
+  const qsoAdvanced = ft8Qso.ingestDecodes(sorted);
+  applyFt8Suggestion(qsoAdvanced);
   const activeQso = ft8Qso.getQso();
 
   // Someone calling us: a chime (once per caller; see call-alert.js), and their rows marked.
   const callers = callAlert.check(sorted, slotStartMs, stationCallsign);
   if (callers.length) playCallChime();
 
+  // When the partner's reply advances the sequence, mark their row as
+  // the one to act on and bring it into view, so the operator can just
+  // double-click it to send the staged next message (see ft8-qso.js).
+  let selectedRow = null;
   for (const msg of sorted) {
     const row = document.createElement('div');
     row.className = 'ft8-table__row';
     if (isRelatedToQso(msg, activeQso)) row.classList.add('ft8-table__row--qso');
     if (isToMe(msg)) row.classList.add('ft8-table__row--to-me');
+    if (qsoAdvanced && isRelatedToQso(msg, activeQso)) {
+      row.classList.add('ft8-table__row--selected');
+      selectedRow = row;
+      // Lock our reply slot parity to the slot we FIRST heard this partner
+      // in, held for the rest of the QSO: only (re)set it when the QSO
+      // partner changes (a new QSO, e.g. someone answering our CQ). On
+      // later rounds the parity is locked, so a decode that wanders parity
+      // can't flip our transmit sequence. See ft8ParityLockPartner.
+      const partner = activeQso && activeQso.partnerCall;
+      if (partner && partner !== ft8ParityLockPartner) {
+        ft8ReplySlotMs = slotStartMs;
+        ft8ParityLockPartner = partner;
+      }
+    }
     row.setAttribute('role', 'row');
     row.title = 'Click to copy this message into the composer · double-click to send it';
+    if (qsoAdvanced && isRelatedToQso(msg, activeQso)) {
+      row.title = 'Your turn: double-click to send your reply';
+    }
     const utc = document.createElement('span');
     utc.textContent = slotStartMs != null ? formatUtcTime(slotStartMs) : '—';
     const dt = document.createElement('span');
@@ -5102,7 +5216,7 @@ link.addEventListener('ft8-decodes', (event) => {
     const freq = document.createElement('span');
     freq.textContent = typeof msg.freq === 'number' ? `${Math.round(msg.freq)}Hz` : '—';
     const snr = document.createElement('span');
-    snr.textContent = typeof msg.snr === 'number' ? `${msg.snr > 0 ? '+' : ''}${msg.snr}` : '—';
+    snr.textContent = typeof msg.snr === 'number' ? `${msg.snr > 0 ? '+' : ''}${msg.snr.toFixed(2)}` : '—';
     const text = document.createElement('span');
     text.textContent = msg.msg || '';
     row.append(utc, dt, freq, snr, text);
@@ -5127,22 +5241,53 @@ link.addEventListener('ft8-decodes', (event) => {
     });
     ft8TableBodyEl.appendChild(row);
   }
+  // Keep the guided-QSO partner reply in view, but don't fight a manual
+  // scroll: only auto-scroll to it when the operator is at the top of the
+  // list (not browsing up it); otherwise restore their pre-rebuild scroll
+  // position so the new slot's rebuild is seamless.
+  if (selectedRow && !ft8UserScrolled) {
+    selectedRow.scrollIntoView({ block: 'nearest' });
+  } else if (ft8Scroller && ft8UserScrolled) {
+    ft8Scroller.scrollTop = ft8PrevScrollTop;
+  }
 });
 
 link.addEventListener('ft8-tx-status', (event) => {
   const { status, message, error, sendAtMs } = event.detail || {};
   ft8StatusEl.hidden = false;
   ft8SendInFlight = status === 'scheduled' || status === 'sending';
-  ft8SendBtn.disabled = ft8SendInFlight;
+  // 'scheduled' = queued but not yet keyed, so it can still be pulled back
+  // -> offer Stop. 'sending' = on the air, too late -> locked. Anything
+  // else (sent / error / cancelled / idle) -> back to a normal Send.
+  setFt8SendMode(status === 'scheduled' ? 'cancel' : status === 'sending' ? 'busy' : 'send');
+  // On the air: turn the status line red while actually transmitting
+  // ('sending'), an unmistakable keyed-up indicator. 'scheduled' (queued)
+  // and 'sent' stay muted.
+  ft8StatusEl.classList.toggle('ft8-status--sending', status === 'sending');
   switch (status) {
     case 'scheduled':
-      ft8StatusEl.textContent = `Scheduled: "${message}" — sending at ${sendAtMs != null ? formatUtcTime(sendAtMs) : 'next slot'}Z`;
+      ft8StatusEl.textContent = `Scheduled: "${message}" — ${sendAtMs != null ? `${formatUtcTime(sendAtMs)}Z · ${slotParityLabel(sendAtMs)}` : 'next slot'}`;
       break;
     case 'sending':
       ft8StatusEl.textContent = `Sending: "${message}"…`;
       break;
     case 'sent':
       ft8StatusEl.textContent = `Sent: "${message}"`;
+      // Our reply is now on the air -- flip the guided line to what we're
+      // waiting to receive next (ft8-qso.js waitingStatus()); deferred to
+      // here so it doesn't claim "waiting for their report" while our own
+      // reply was still only Scheduled. null for a non-guided send.
+      {
+        const waitingNext = ft8Qso.waitingStatus();
+        if (waitingNext) showQsoStatus(waitingNext);
+      }
+      break;
+    case 'cancelled':
+      // A queued (not-yet-on-air) reply was dropped server-side -- e.g. the
+      // operator pressed Stop, retuned, or switched FT8/FT4 before the slot
+      // boundary. Clear the stale 'Scheduled:' line rather than leave it
+      // frozen.
+      ft8StatusEl.textContent = 'Send canceled';
       break;
     case 'error':
       ft8StatusEl.textContent = `FT8 TX failed: ${error || 'unknown error'}`;
@@ -5167,9 +5312,10 @@ function sendFt8Message() {
     ft8Qso.noteOwnCqSent();
     currentQsoFreqHz = ft8DefaultTxFreqHz;
     scopeDisplay.setQsoFreq(currentQsoFreqHz);
-    hideQsoStatus();
-    // A fresh CQ isn't answering anyone -- let it go at the next boundary.
+    // A fresh CQ isn't answering anyone -- let it go at the next boundary,
+    // and drop any QSO parity lock (this starts a new sequence).
     ft8ReplySlotMs = null;
+    ft8ParityLockPartner = null;
   }
 
   // currentQsoFreqHz targets this transmission at the frequency the
@@ -5192,16 +5338,57 @@ function sendFt8Message() {
   // case above.
   if (ft8Qso.getQso()?.step === 'complete') {
     ft8Qso.reset();
+    ft8ReplySlotMs = null;
+    ft8ParityLockPartner = null;
     currentQsoFreqHz = ft8DefaultTxFreqHz;
     scopeDisplay.setQsoFreq(currentQsoFreqHz);
-    hideQsoStatus();
     ft8ComposerInput.value = defaultCqMessage(stationCallsign, stationGrid);
   }
+
+  // The staged message has now gone out, so drop the "your turn" cue on
+  // the Send button and replace any lingering staged-state prompt ("send
+  // this reply") with a neutral line for what we're now waiting to hear
+  // back. This is what stops a double-clicked, auto-sent reply from still
+  // reading as if the operator must press Send (see applyFt8Suggestion()
+  // and ft8-qso.js waitingStatus()). Nothing in progress -> hide the line.
+  ft8SendBtn.classList.remove('ft8-composer__send--attention');
+  // Clear the "your turn" prompt now the reply is dispatched. The guided
+  // line comes back with the "Waiting for ..." state only once the reply
+  // is actually on the air (the ft8-tx-status 'sent' handler), not while
+  // it's merely Scheduled -- so it never claims we're waiting for their
+  // report before our own reply has even transmitted.
+  hideQsoStatus();
 }
 
-ft8SendBtn.addEventListener('click', sendFt8Message);
+// While a transmission is scheduled the button is a Stop; otherwise it
+// sends. ft8SendMode is set by setFt8SendMode() from the ft8-tx-status
+// handler.
+let ft8SendMode = 'send';
+function handleFt8SendButton() {
+  if (ft8SendMode === 'cancel') {
+    link.request('abortFt8').catch((err) => showError(`Couldn't stop the transmission: ${err.message}`));
+  } else {
+    sendFt8Message();
+  }
+}
+/**
+ * Switches the composer's action button between Send, a red Stop (a
+ * scheduled TX can still be pulled back), and a disabled locked state
+ * (on the air). Keeps ft8SendMode in step so the click/Enter handler
+ * knows which action to take.
+ */
+function setFt8SendMode(mode) {
+  ft8SendMode = mode;
+  const cancel = mode === 'cancel';
+  ft8SendBtn.textContent = cancel ? 'Stop' : 'Send';
+  ft8SendBtn.disabled = mode === 'busy';
+  ft8SendBtn.classList.toggle('ft8-composer__send--cancel', cancel);
+  // A pending Stop supersedes the amber 'your turn' cue.
+  if (cancel) ft8SendBtn.classList.remove('ft8-composer__send--attention');
+}
+ft8SendBtn.addEventListener('click', handleFt8SendButton);
 ft8ComposerInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') sendFt8Message();
+  if (event.key === 'Enter') handleFt8SendButton();
 });
 
 /**

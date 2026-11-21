@@ -5698,3 +5698,107 @@ also in v142.
   manual-tty-ui.js: the banner in both browsers, below the header, and
   gone when the radio answers.
 - Service-worker cache v146.
+
+### Guided FT8/FT4 QSO: auto-select, locked slot parity, Even/Odd labels (v150)
+- When the partner's reply decodes and the guided sequence advances, that
+  row is marked green and brought into view, so a double-click sends the
+  already-staged next message (report / RR73 / 73). A click or double-click
+  on an active-QSO row no longer overwrites the staged message with the
+  partner's raw text.
+- Transmit-slot parity is locked for the life of a QSO. The reply slot is
+  fixed to the slot we first heard the partner in and held, so a later
+  decode that wanders parity (a drifting clock, or a late decode put in the
+  wrong slot) can't flip which 15 s sequence we transmit in. The lock resets
+  when a new CQ is engaged, on leaving FT8, or when the QSO completes; the
+  transmit frequency still tracks the partner independently. On air this
+  turned a QSO that had bounced Even/Odd/Odd/Even/Odd into a clean,
+  single-parity exchange start to finish.
+- The slot time and the TX schedule line now show WSJT-X's Even/Odd label
+  (Even = :00/:30, Odd = :15/:45) next to the UTC time, so the sequence is
+  legible: "slot 03:17:00Z . Even", "Scheduled: ... -- 03:17:30Z . Even".
+- Status lines tidied. The guided line reads "Waiting for X's signal report"
+  (what we're waiting to receive), shown only once our own reply is actually
+  on the air, not while it's merely Scheduled. The TX status line turns red
+  while transmitting ('sending'), and the Send button pulses amber when it
+  is the operator's turn to send.
+- Tests: ft8-qso.test.mjs covers the sequencer (both roles, the pileup pick,
+  waitingStatus across the steps). The slot-parity lock and the UI wiring
+  live in app.js (not unit-tested) and were verified on air.
+- Service-worker cache v150.
+
+### FT8/FT4 guided-QSO and decode-table refinements (v151)
+
+Guided QSO:
+- Changing bands mid-session now resets the guided sequence back to calling
+  CQ, so a staged reply (and its locked transmit-slot parity) can't follow
+  you onto the new band.
+- Clicking a decoded station that is not calling CQ and not answering you
+  (one station working another) now stages your first call to that station,
+  "THEIRCALL MYCALL GRID", so you can wait for them to finish and then send,
+  instead of dropping the raw message text onto the composer. Clicking a CQ,
+  or a reply addressed to you, still engages as before.
+- While a QSO is in progress, clicking an unrelated row no longer overwrites
+  the staged reply or desyncs the status line; the manual copy-to-composer
+  is kept only when no QSO is active.
+
+Decode table readability:
+- SNR is shown to two decimal places (it was the raw float, which overflowed
+  the column to "-7.089...").
+- On phones the message wraps onto its own full-width line below the
+  metadata, and the UTC column is widened so HH:MM:SS is no longer clipped.
+- The decoded message is shown in the bright text colour with the
+  UTC/dt/Freq/SNR metadata muted, so the message reads as the primary
+  content.
+- The band-activity list keeps your scroll position across the per-slot
+  refresh instead of jumping to the top, and only auto-scrolls to the active
+  QSO row when you are at the top of the list.
+
+- Tests: ft8-qso.test.mjs (the sequencer) still passes. startCalling() and
+  the table/scroll/CSS changes live in app.js/styles.css and were verified
+  on air.
+- Service-worker cache v151.
+
+### FT8/FT4 guided-QSO review fixes (v152)
+
+Follow-up to v151, addressing review feedback:
+- Clicking an unrelated station mid-QSO no longer switches partners. The
+  "work a station we overheard" action (startCalling) now fires only when no
+  QSO is in progress; a CQ or a reply addressed to us still engages.
+- A band change resets the guided QSO to CQ only after the radio confirms the
+  tune. A move the radio rejects (we stay on the old band) now leaves the QSO
+  intact -- the radio/server stays the source of truth.
+- startCalling validates both callsigns (CALLSIGN_RE) and requires a
+  recognized exchange, so free text like "TNX ROBERT 73" is no longer taken
+  for a station to call.
+- The FT8 bridge now cancels a transmission queued for the next slot boundary
+  when the dial retunes (new cancelPendingTx(), hooked to the server
+  frequency event), so a reply staged for one band cannot go out on another.
+  This is the one server-side change in the PR.
+
+- Tests: ft8-qso.test.mjs still passes; the band-change / retune behaviour is
+  in app.js / ft8-bridge.js and was verified on air.
+- Service-worker cache v152.
+
+### FT8/FT4 Stop a queued transmission (v153)
+
+Follow-up to v152's queued-TX handling, giving the operator control of a
+scheduled-but-not-yet-sent reply and fixing a stale status line:
+- While a transmission is scheduled for the next slot boundary, the
+  composer's Send button becomes a red **Stop**. Pressing it (new
+  ABORT_FT8 request -> internal 'ft8-abort' event -> Ft8Bridge
+  cancelPendingTx) drops the queued message before it is keyed up.
+- Once the transmission is actually on the air (status 'sending') the
+  button locks (disabled): audio already being written to the radio
+  can't be rewound. It returns to Send once the slot ends.
+- cancelPendingTx now broadcasts an FT8_TX_STATUS 'cancelled' to every
+  browser, rendered as "Send canceled". Previously a cancel (Stop, a
+  retune, or an FT8/FT4 switch) only rejected the originating browser's
+  send promise, so the "Scheduled: ..." line stayed frozen on every
+  client.
+
+- Server: protocol.js (ABORT_FT8), ws-server.js (handler), ft8-bridge.js
+  (broadcast + 'ft8-abort' subscription). Client: app.js, styles.css.
+- Tests: ft8-qso.test.mjs still passes (no sequencer change); the TX-state
+  button and cancel broadcast are in app.js / ft8-bridge.js and were
+  verified on air.
+- Service-worker cache v153.

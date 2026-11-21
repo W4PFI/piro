@@ -223,6 +223,7 @@ class Ft8Bridge {
     this._pendingRequests = new Map(); // requestId -> {resolve, reject}
     this._nextRequestId = 1;
     this._pendingTxMessage = null; // queued text, sent at the next boundary
+    this._lastDialHz = null; // last dial frequency seen; a change cancels a queued TX
     this._pttReleaseTimer = null;
 
     this._onPcmData = (chunk) => {
@@ -254,12 +255,24 @@ class Ft8Bridge {
       this._pskSpotEnabled = enabled;
     };
     this._onVariantRequest = (variant) => this.setVariant(variant);
+    // Operator pressed Stop while a reply was queued for the next slot.
+    this._onAbortRequest = () => this.cancelPendingTx('the transmission was canceled');
+    // A dial retune (band change / manual QSY) invalidates a reply queued for
+    // a specific station and slot -- cancel it rather than let it go out on
+    // the new frequency.
+    this._onFrequencyChange = (hz) => {
+      if (hz === this._lastDialHz) return;
+      this._lastDialHz = hz;
+      this.cancelPendingTx('the operator retuned before this transmission went out');
+    };
 
     this.controlServer.on('ptt', this._onPtt);
     this.controlServer.on('ft8-active', this._onActiveRequest);
     this.controlServer.on('ft8-send', this._onSendRequest);
     this.controlServer.on('psk-spot-enabled', this._onPskSpotEnabledRequest);
     this.controlServer.on('ft8-variant', this._onVariantRequest);
+    this.controlServer.on('ft8-abort', this._onAbortRequest);
+    this.controlServer.on('frequency', this._onFrequencyChange);
     this.slotClock.on('boundary', this._onBoundary);
     this.worker.on('message', this._onWorkerMessage);
     this.worker.on('error', (err) => console.error('[ft8] decode worker error:', err.message));
@@ -279,6 +292,8 @@ class Ft8Bridge {
     this.controlServer.off('ft8-send', this._onSendRequest);
     this.controlServer.off('psk-spot-enabled', this._onPskSpotEnabledRequest);
     this.controlServer.off('ft8-variant', this._onVariantRequest);
+    this.controlServer.off('ft8-abort', this._onAbortRequest);
+    this.controlServer.off('frequency', this._onFrequencyChange);
     this.slotClock.off('boundary', this._onBoundary);
     if (this._pttReleaseTimer) clearTimeout(this._pttReleaseTimer);
     for (const { reject } of this._pendingRequests.values()) reject(new Error('Ft8Bridge stopped'));
@@ -317,11 +332,25 @@ class Ft8Bridge {
     this._protocol = variant;
     this.slotClock.setSlotMs(PROTOCOLS[variant].slotMs);
     this._rxChunks = [];
-    if (this._pendingTxMessage) {
-      const { reject } = this._pendingTxMessage;
-      this._pendingTxMessage = null;
-      reject(new Error('FT8/FT4 mode changed before this transmission went out'));
-    }
+    this.cancelPendingTx('FT8/FT4 mode changed before this transmission went out');
+  }
+
+  /**
+   * Cancels a transmission queued for the next slot boundary but not yet on
+   * the air (rejecting its send promise); a transmission already in flight
+   * (PTT up, playback started) is untouched. Used when the mode changes
+   * (setVariant) or the dial retunes, so a reply staged for one station/band
+   * can't go out on another.
+   */
+  cancelPendingTx(reason) {
+    if (!this._pendingTxMessage) return;
+    const { reject, message } = this._pendingTxMessage;
+    this._pendingTxMessage = null;
+    reject(new Error(reason));
+    // Tell every browser the queued TX is gone, so the 'Scheduled:' line
+    // clears to 'Send canceled' rather than sitting frozen -- the reject
+    // above only reaches the one browser that issued sendFt8.
+    this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'cancelled', message, reason });
   }
 
   _syncAttachment() {

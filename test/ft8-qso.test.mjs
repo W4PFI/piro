@@ -156,11 +156,13 @@ check(defaultCqMessage(null, null) === '', 'defaultCqMessage returns empty strin
   check(step1 !== null && step1.txText === 'VK3XU VK2IO QF56', `engaging a CQ suggests the Tx2 reply, got ${JSON.stringify(step1)}`);
   check(step1.freqHz === 1500, 'the suggestion carries the CQ\'s own decoded frequency, to reply on the same frequency they\'re listening on');
   check(seq.getQso().partnerCall === 'VK3XU' && seq.getQso().role === 'caller', 'the sequencer now tracks an in-progress QSO with the CQer, in the caller role');
+  check(seq.waitingStatus() === "Waiting for VK3XU's signal report.", `after our reply is sent, waitingStatus() names what we're waiting to receive, got ${JSON.stringify(seq.waitingStatus())}`);
 
   // 2. They send us a signal report (Tx3) -> Tx4 (R + our report of them)
   const step2 = seq.ingestDecodes([{ msg: 'VK2IO VK3XU -09', freq: 1503, snr: -6 }]);
   check(step2 !== null && step2.txText === 'VK3XU VK2IO R-06', `receiving their report suggests the Tx4 ack-with-our-own-report, got ${JSON.stringify(step2)}`);
   check(step2.freqHz === 1503, "the QSO's tracked frequency follows the partner's most recently decoded frequency (drift tracking)");
+  check(seq.waitingStatus() === "Waiting for VK3XU's RRR/RR73.", 'once our R-report is sent, waitingStatus() waits on RRR/RR73');
 
   // Unrelated traffic in the same slot must not disturb the QSO.
   const noise = seq.ingestDecodes([{ msg: 'CQ VK9ZZZ QF10', freq: 2000, snr: 5 }]);
@@ -171,6 +173,9 @@ check(defaultCqMessage(null, null) === '', 'defaultCqMessage returns empty strin
   const step3 = seq.ingestDecodes([{ msg: 'VK2IO VK3XU RR73', freq: 1503, snr: -4 }]);
   check(step3 !== null && step3.txText === 'VK3XU VK2IO 73', `receiving RR73 suggests the (optional) final 73, got ${JSON.stringify(step3)}`);
   check(seq.getQso().step === 'complete', 'the QSO is marked complete after RR73');
+  check(seq.waitingStatus() === null, 'waitingStatus() is null once the QSO is complete (nothing left to wait for)');
+  seq.reset();
+  check(seq.waitingStatus() === null, 'waitingStatus() is null with no QSO and not seeking');
 }
 
 {
@@ -195,11 +200,13 @@ check(defaultCqMessage(null, null) === '', 'defaultCqMessage returns empty strin
   check(premature === null, 'a reply-shaped message is ignored until we actually send our own CQ (noteOwnCqSent())');
 
   seq.noteOwnCqSent();
+  check(seq.waitingStatus() === 'Waiting for a reply to your CQ.', 'after our own CQ is sent, waitingStatus() waits on a reply');
 
   // 1. Someone answers our CQ (Tx2, with grid) -> Tx3 (our report of them)
   const step1 = seq.ingestDecodes([{ msg: 'VK2IO VK3XU QF33', freq: 1200, snr: -8 }]);
   check(step1 !== null && step1.txText === 'VK3XU VK2IO -08', `a reply to our CQ suggests the Tx3 report, got ${JSON.stringify(step1)}`);
   check(seq.getQso().role === 'cqer' && seq.getQso().partnerCall === 'VK3XU', 'the sequencer now tracks the QSO in the cqer role');
+  check(seq.waitingStatus() === "Waiting for VK3XU's acknowledgement.", 'in the cqer role, once our report is sent waitingStatus() waits on their acknowledgement');
 
   // 2. They acknowledge with their own report (Tx4) -> Tx5 (RR73)
   const step2 = seq.ingestDecodes([{ msg: 'VK2IO VK3XU R-11', freq: 1200, snr: -7 }]);
