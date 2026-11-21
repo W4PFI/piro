@@ -521,6 +521,15 @@ button {
   animation: ft8-send-attention 1.4s ease-in-out infinite;
 }
 
+/* Scheduled TX can still be pulled back: the Send button becomes a red
+   Stop (see app.js setFt8SendMode). Red, not pulsing -- it's an action
+   that's available, not a prompt demanding attention. */
+.ft8-composer__send--cancel {
+  border-color: var(--led-red);
+  color: var(--led-red);
+  background: color-mix(in srgb, var(--led-red) 14%, var(--panel-raised));
+}
+
 @keyframes ft8-send-attention {
   50% {
     box-shadow: 0 0 7px 1px var(--led-amber);

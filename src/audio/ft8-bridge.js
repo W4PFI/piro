@@ -255,6 +255,8 @@ class Ft8Bridge {
       this._pskSpotEnabled = enabled;
     };
     this._onVariantRequest = (variant) => this.setVariant(variant);
+    // Operator pressed Stop while a reply was queued for the next slot.
+    this._onAbortRequest = () => this.cancelPendingTx('the transmission was canceled');
     // A dial retune (band change / manual QSY) invalidates a reply queued for
     // a specific station and slot -- cancel it rather than let it go out on
     // the new frequency.
@@ -269,6 +271,7 @@ class Ft8Bridge {
     this.controlServer.on('ft8-send', this._onSendRequest);
     this.controlServer.on('psk-spot-enabled', this._onPskSpotEnabledRequest);
     this.controlServer.on('ft8-variant', this._onVariantRequest);
+    this.controlServer.on('ft8-abort', this._onAbortRequest);
     this.controlServer.on('frequency', this._onFrequencyChange);
     this.slotClock.on('boundary', this._onBoundary);
     this.worker.on('message', this._onWorkerMessage);
@@ -289,6 +292,7 @@ class Ft8Bridge {
     this.controlServer.off('ft8-send', this._onSendRequest);
     this.controlServer.off('psk-spot-enabled', this._onPskSpotEnabledRequest);
     this.controlServer.off('ft8-variant', this._onVariantRequest);
+    this.controlServer.off('ft8-abort', this._onAbortRequest);
     this.controlServer.off('frequency', this._onFrequencyChange);
     this.slotClock.off('boundary', this._onBoundary);
     if (this._pttReleaseTimer) clearTimeout(this._pttReleaseTimer);
@@ -340,9 +344,13 @@ class Ft8Bridge {
    */
   cancelPendingTx(reason) {
     if (!this._pendingTxMessage) return;
-    const { reject } = this._pendingTxMessage;
+    const { reject, message } = this._pendingTxMessage;
     this._pendingTxMessage = null;
     reject(new Error(reason));
+    // Tell every browser the queued TX is gone, so the 'Scheduled:' line
+    // clears to 'Send canceled' rather than sitting frozen -- the reject
+    // above only reaches the one browser that issued sendFt8.
+    this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'cancelled', message, reason });
   }
 
   _syncAttachment() {

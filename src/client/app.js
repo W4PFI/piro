@@ -5256,7 +5256,10 @@ link.addEventListener('ft8-tx-status', (event) => {
   const { status, message, error, sendAtMs } = event.detail || {};
   ft8StatusEl.hidden = false;
   ft8SendInFlight = status === 'scheduled' || status === 'sending';
-  ft8SendBtn.disabled = ft8SendInFlight;
+  // 'scheduled' = queued but not yet keyed, so it can still be pulled back
+  // -> offer Stop. 'sending' = on the air, too late -> locked. Anything
+  // else (sent / error / cancelled / idle) -> back to a normal Send.
+  setFt8SendMode(status === 'scheduled' ? 'cancel' : status === 'sending' ? 'busy' : 'send');
   // On the air: turn the status line red while actually transmitting
   // ('sending'), an unmistakable keyed-up indicator. 'scheduled' (queued)
   // and 'sent' stay muted.
@@ -5278,6 +5281,13 @@ link.addEventListener('ft8-tx-status', (event) => {
         const waitingNext = ft8Qso.waitingStatus();
         if (waitingNext) showQsoStatus(waitingNext);
       }
+      break;
+    case 'cancelled':
+      // A queued (not-yet-on-air) reply was dropped server-side -- e.g. the
+      // operator pressed Stop, retuned, or switched FT8/FT4 before the slot
+      // boundary. Clear the stale 'Scheduled:' line rather than leave it
+      // frozen.
+      ft8StatusEl.textContent = 'Send canceled';
       break;
     case 'error':
       ft8StatusEl.textContent = `FT8 TX failed: ${error || 'unknown error'}`;
@@ -5350,9 +5360,35 @@ function sendFt8Message() {
   hideQsoStatus();
 }
 
-ft8SendBtn.addEventListener('click', sendFt8Message);
+// While a transmission is scheduled the button is a Stop; otherwise it
+// sends. ft8SendMode is set by setFt8SendMode() from the ft8-tx-status
+// handler.
+let ft8SendMode = 'send';
+function handleFt8SendButton() {
+  if (ft8SendMode === 'cancel') {
+    link.request('abortFt8').catch((err) => showError(`Couldn't stop the transmission: ${err.message}`));
+  } else {
+    sendFt8Message();
+  }
+}
+/**
+ * Switches the composer's action button between Send, a red Stop (a
+ * scheduled TX can still be pulled back), and a disabled locked state
+ * (on the air). Keeps ft8SendMode in step so the click/Enter handler
+ * knows which action to take.
+ */
+function setFt8SendMode(mode) {
+  ft8SendMode = mode;
+  const cancel = mode === 'cancel';
+  ft8SendBtn.textContent = cancel ? 'Stop' : 'Send';
+  ft8SendBtn.disabled = mode === 'busy';
+  ft8SendBtn.classList.toggle('ft8-composer__send--cancel', cancel);
+  // A pending Stop supersedes the amber 'your turn' cue.
+  if (cancel) ft8SendBtn.classList.remove('ft8-composer__send--attention');
+}
+ft8SendBtn.addEventListener('click', handleFt8SendButton);
 ft8ComposerInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') sendFt8Message();
+  if (event.key === 'Enter') handleFt8SendButton();
 });
 
 /**
