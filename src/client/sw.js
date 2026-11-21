@@ -5,7 +5,7 @@
 // can't intercept ws:// traffic anyway, and rig state should never be
 // served stale from cache.
 
-const CACHE_NAME = 'piro-shell-v149';
+const CACHE_NAME = 'piro-shell-v150';
 
 const SHELL_ASSETS = [
   '/',

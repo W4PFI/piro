@@ -1171,11 +1171,21 @@ class ControlServer extends EventEmitter {
           if (msg.freqHz !== undefined && typeof msg.freqHz !== 'number') {
             throw new Error('"freqHz" must be a number (Hz) if provided');
           }
+          // replySlotMs: the slot (epoch ms) a reply is answering, so
+          // the server lands it in the opposite parity slot the station
+          // is listening in (see ft8-bridge.js#send). Omitted for a
+          // fresh CQ / manual send.
+          if (
+            msg.replySlotMs !== undefined &&
+            (typeof msg.replySlotMs !== 'number' || !Number.isFinite(msg.replySlotMs))
+          ) {
+            throw new Error('"replySlotMs" must be a finite number (epoch ms) if provided');
+          }
           // This only *schedules* the transmission (it happens at the next
           // FT8 slot boundary, up to 15s away) — the actual outcome
           // arrives later as an EVENT.FT8_TX_STATUS broadcast, not as this
           // request's result, since it can't be known yet.
-          this.emit('ft8-send', { message: msg.message, freqHz: msg.freqHz });
+          this.emit('ft8-send', { message: msg.message, freqHz: msg.freqHz, replySlotMs: msg.replySlotMs });
           ws.send(makeResult(id, { accepted: true }));
           break;
         }

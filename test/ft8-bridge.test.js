@@ -432,8 +432,10 @@ async function run() {
   }
 
   {
-    // An encode failure should release PTT (best-effort), broadcast an
-    // error status, and reject the send() promise rather than hang.
+    // An encode failure now happens when the message is *staged* (send()
+    // pre-builds the waveform, see ft8-bridge.js), before the radio is
+    // ever keyed: it should broadcast an error status and reject the
+    // send() promise, and must never key PTT.
     const { bridge, slotClock, controlServer } = makeBridge({
       encodeFn: () => {
         throw new Error('encode blew up');
@@ -450,7 +452,7 @@ async function run() {
     check(caught !== null && /encode blew up/.test(caught.message), 'send() rejects when encoding fails');
     const errorEvents = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'error');
     check(errorEvents.length === 1, 'an encode failure broadcasts an "error" FT8_TX_STATUS event');
-    check(controlServer.pttCalls[controlServer.pttCalls.length - 1] === false, 'PTT is still released (best-effort) after an encode failure');
+    check(!controlServer.pttCalls.includes(true), 'an encode failure never keys PTT (the radio is never touched)');
     bridge.stop();
   }
 

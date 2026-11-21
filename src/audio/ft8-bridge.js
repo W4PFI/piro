@@ -228,8 +228,9 @@ class Ft8Bridge {
       // deliberately tolerant of both rather than a breaking shape change,
       // since a plain string is simpler for anything that doesn't need a
       // specific frequency (a manual composer send, a fresh CQ).
-      const { message, freqHz } = typeof payload === 'string' ? { message: payload, freqHz: undefined } : payload;
-      this.send(message, { freqHz }).catch((err) => {
+      const { message, freqHz, replySlotMs } =
+        typeof payload === 'string' ? { message: payload, freqHz: undefined, replySlotMs: undefined } : payload;
+      this.send(message, { freqHz, replySlotMs }).catch((err) => {
         // Errors are already broadcast as EVENT.FT8_TX_STATUS below —
         // this catch only exists so a rejected promise here (nothing is
         // awaiting it, since the request/response already returned
@@ -412,14 +413,53 @@ class Ft8Bridge {
    *   practice, see docs/ui-notes.md — rather than this bridge's one
    *   fixed default. Omit for a plain/manual send (e.g. a fresh CQ).
    */
-  send(message, { freqHz } = {}) {
+  send(message, { freqHz, replySlotMs } = {}) {
     return new Promise((resolve, reject) => {
-      this._pendingTxMessage = { message, freqHz, resolve, reject };
+      // FT8/FT4 are strict ping-pong on alternating slots: a reply must
+      // land in the slot the answered station is *listening* in (the
+      // opposite parity to the slot we heard it in) or it never reaches
+      // them. replySlotMs is that station's slot; null (a fresh CQ or a
+      // manual send) means "next boundary, any parity", as before.
+      const txParity = replySlotMs == null ? null : 1 - this.slotClock.slotParity(replySlotMs);
+      const sendAtMs =
+        txParity == null ? this.slotClock.nextSlotStart() : this.slotClock.nextSlotStartWithParity(txParity);
+      const actualFreqHz = freqHz ?? this.txBaseFrequencyHz;
+      // Build the waveform now, while the current slot still has seconds
+      // of idle time, instead of at the slot boundary in _transmitNow().
+      // On a Pi 4 the encode + 12k->48k resample is ~0.5s; doing it at the
+      // boundary pushed the actual start of transmission that far past the
+      // slot start, so other stations' signals began well before ours and
+      // our transmitted DT (time offset) ran badly late in every receiver.
+      // Pre-building here takes that cost off the critical path. Rejects
+      // up front if the message can't be encoded, same net contract as
+      // before (it used to reject from _transmitNow()).
+      let pcm;
+      try {
+        const floatSamples = this._encodeFns[this._protocol](message, {
+          sampleRate: FT8_SAMPLE_RATE,
+          baseFrequency: actualFreqHz,
+        });
+        pcm = upsampleFloatToPcm(floatSamples, FT8_SAMPLE_RATE, this.audioBridge.sampleRate);
+      } catch (err) {
+        // Surface the failure to the UI the same way a boundary-time
+        // failure used to, then reject. Nothing was keyed, so there is no
+        // PTT to release here -- an improvement: a message that can't even
+        // be encoded now never touches the radio at all.
+        this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'error', message, error: err.message });
+        reject(err);
+        return;
+      }
+      // Carry txParity (PR: correct-slot scheduling) AND the pre-built pcm
+      // (PR: boundary-time latency) on the same queued-TX record: the
+      // boundary handler fires it only in the matching parity slot, and
+      // _transmitNow writes the already-encoded audio with no encode on the
+      // critical path.
+      this._pendingTxMessage = { message, freqHz: actualFreqHz, txParity, pcm, resolve, reject };
       this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, {
         status: 'scheduled',
         message,
-        freqHz: freqHz ?? this.txBaseFrequencyHz,
-        sendAtMs: this.slotClock.nextSlotStart(),
+        freqHz: actualFreqHz,
+        sendAtMs,
       });
     });
   }
@@ -434,8 +474,13 @@ class Ft8Bridge {
 
     if (this._pendingTxMessage) {
       const tx = this._pendingTxMessage;
-      this._pendingTxMessage = null;
-      this._transmitNow(tx);
+      // Only fire in the slot parity this reply is meant for (see
+      // send()); a null txParity means any next boundary (fresh CQ /
+      // manual send). Otherwise wait for the matching boundary.
+      if (tx.txParity == null || this.slotClock.slotParity(slotStartMs) === tx.txParity) {
+        this._pendingTxMessage = null;
+        this._transmitNow(tx);
+      }
     }
   }
 
@@ -539,23 +584,30 @@ class Ft8Bridge {
     }
   }
 
-  async _transmitNow({ message, freqHz, resolve, reject }) {
+  async _transmitNow({ message, freqHz, pcm, resolve, reject }) {
     const actualFreqHz = freqHz ?? this.txBaseFrequencyHz;
     try {
       this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'sending', message, freqHz: actualFreqHz });
-      const floatSamples = this._encodeFns[this._protocol](message, {
-        sampleRate: FT8_SAMPLE_RATE,
-        baseFrequency: actualFreqHz,
-      });
-      const pcm = upsampleFloatToPcm(floatSamples, FT8_SAMPLE_RATE, this.audioBridge.sampleRate);
+      // Prefer the waveform built when this message was staged (see
+      // send()), so the ~0.5s encode+resample doesn't delay the start of
+      // transmission here at the slot boundary. Fall back to building it
+      // if a caller staged none (e.g. a direct call in a unit test).
+      let outPcm = pcm;
+      if (!outPcm) {
+        const floatSamples = this._encodeFns[this._protocol](message, {
+          sampleRate: FT8_SAMPLE_RATE,
+          baseFrequency: actualFreqHz,
+        });
+        outPcm = upsampleFloatToPcm(floatSamples, FT8_SAMPLE_RATE, this.audioBridge.sampleRate);
+      }
 
       // The FT8 button turned DATA mode on; make sure it still is before
       // keying (a quick read when it is; see civ/data-mode-guard.js).
       await ensureDataMode(this.civ, true, { settleMs: this.dataSettleMs });
       await this.controlServer.setPttFromServer(true);
-      this.audioBridge.playback.write(pcm);
+      this.audioBridge.playback.write(outPcm);
 
-      const durationMs = (pcm.length / 2 / this.audioBridge.sampleRate) * 1000;
+      const durationMs = (outPcm.length / 2 / this.audioBridge.sampleRate) * 1000;
       // See PTT_RELEASE_MARGIN_MS's doc comment: hold PTT for longer than
       // the nominal PCM duration so the pipe + ALSA buffering between
       // write() returning and the audio actually reaching the speaker has

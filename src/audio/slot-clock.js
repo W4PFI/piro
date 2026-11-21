@@ -31,6 +31,28 @@ function msUntilNextSlot(nowMs, slotMs) {
 }
 
 /**
+ * Parity (0 or 1) of the slot that starts at `slotStartMs`. Adjacent
+ * slots alternate, so this is exactly FT8/FT4's "transmit even/odd":
+ * two stations in a QSO must sit on opposite parities (one transmits
+ * while the other listens, swapping each slot).
+ */
+function slotParity(slotStartMs, slotMs) {
+  return ((Math.floor(slotStartMs / slotMs) % 2) + 2) % 2;
+}
+
+/**
+ * The next slot boundary strictly after `nowMs` whose parity equals
+ * `parity` (0 or 1): the next boundary, or the one after it if that
+ * one is the wrong parity. Lets a reply land in the slot the station
+ * being answered is actually listening in (the opposite parity to the
+ * slot we heard it in) rather than co-slotted with it.
+ */
+function nextSlotStartWithParity(nowMs, slotMs, parity) {
+  const s = nextSlotStart(nowMs, slotMs);
+  return slotParity(s, slotMs) === parity ? s : s + slotMs;
+}
+
+/**
  * Fires a 'boundary' event at every slot edge, each carrying the epoch ms
  * of the slot that just *started* (equivalently: the slot that just
  * *ended* is the one immediately before it) — a listener doing RX uses
@@ -70,6 +92,14 @@ class SlotClock extends EventEmitter {
 
   nextSlotStart(nowMs = this._now()) {
     return nextSlotStart(nowMs, this.slotMs);
+  }
+
+  slotParity(slotStartMs) {
+    return slotParity(slotStartMs, this.slotMs);
+  }
+
+  nextSlotStartWithParity(parity, nowMs = this._now()) {
+    return nextSlotStartWithParity(nowMs, this.slotMs, parity);
   }
 
   msUntilNextSlot(nowMs = this._now()) {
@@ -121,4 +151,4 @@ class SlotClock extends EventEmitter {
   }
 }
 
-module.exports = { SlotClock, currentSlotStart, nextSlotStart, msUntilNextSlot };
+module.exports = { SlotClock, currentSlotStart, nextSlotStart, msUntilNextSlot, slotParity, nextSlotStartWithParity };
