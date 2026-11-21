@@ -5778,3 +5778,27 @@ Follow-up to v151, addressing review feedback:
 - Tests: ft8-qso.test.mjs still passes; the band-change / retune behaviour is
   in app.js / ft8-bridge.js and was verified on air.
 - Service-worker cache v152.
+
+### FT8/FT4 Stop a queued transmission (v153)
+
+Follow-up to v152's queued-TX handling, giving the operator control of a
+scheduled-but-not-yet-sent reply and fixing a stale status line:
+- While a transmission is scheduled for the next slot boundary, the
+  composer's Send button becomes a red **Stop**. Pressing it (new
+  ABORT_FT8 request -> internal 'ft8-abort' event -> Ft8Bridge
+  cancelPendingTx) drops the queued message before it is keyed up.
+- Once the transmission is actually on the air (status 'sending') the
+  button locks (disabled): audio already being written to the radio
+  can't be rewound. It returns to Send once the slot ends.
+- cancelPendingTx now broadcasts an FT8_TX_STATUS 'cancelled' to every
+  browser, rendered as "Send canceled". Previously a cancel (Stop, a
+  retune, or an FT8/FT4 switch) only rejected the originating browser's
+  send promise, so the "Scheduled: ..." line stayed frozen on every
+  client.
+
+- Server: protocol.js (ABORT_FT8), ws-server.js (handler), ft8-bridge.js
+  (broadcast + 'ft8-abort' subscription). Client: app.js, styles.css.
+- Tests: ft8-qso.test.mjs still passes (no sequencer change); the TX-state
+  button and cancel broadcast are in app.js / ft8-bridge.js and were
+  verified on air.
+- Service-worker cache v153.
