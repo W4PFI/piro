@@ -5064,6 +5064,14 @@ function formatUtcTime(ms) {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
 
+// Even/Odd label for a slot (epoch ms), matching WSJT-X's :00/:30 (Even)
+// and :15/:45 (Odd) convention, for the [ft8] debug logs below.
+function slotParityLabel(slotStartMs) {
+  if (slotStartMs == null) return '';
+  const slotMs = ft8Variant === 'FT4' ? 7500 : 15000;
+  return Math.floor(slotStartMs / slotMs) % 2 === 0 ? 'Even' : 'Odd';
+}
+
 // The slot (epoch ms) of the decode the operator is answering, so a
 // reply is scheduled in the opposite slot parity -- the one the far
 // station is listening in (see sendFt8Message() and ft8-bridge.js).
@@ -5102,6 +5110,11 @@ link.addEventListener('ft8-decodes', (event) => {
   // the previous one.
   const qsoAdvanced = ft8Qso.ingestDecodes(sorted);
   applyFt8Suggestion(qsoAdvanced);
+  if (qsoAdvanced) {
+    // Debug (browser console): which Even/Odd slot the partner's reply
+    // landed in and what we staged back, to check sequencing vs WSJT-X.
+    console.log(`[ft8] QSO advanced in the ${slotParityLabel(slotStartMs)} slot (${formatUtcTime(slotStartMs)}Z) — staged reply "${qsoAdvanced.txText}"`);
+  }
   const activeQso = ft8Qso.getQso();
   // A completed guided QSO: log it once. The server emits a WSJT-X
   // Logged-ADIF UDP datagram for any logger to pick up and fills the RF
@@ -5373,6 +5386,16 @@ function sendFt8Message() {
   // Tell the server which slot we're answering, so it schedules this in
   // the opposite parity slot the station is listening in (ft8-bridge.js).
   if (ft8ReplySlotMs != null) request.replySlotMs = ft8ReplySlotMs;
+  // Debug (browser console): what we transmit, which Even/Odd slot it goes
+  // out in, and the station/slot we're answering -- the reply goes in the
+  // opposite parity to the slot we heard the partner in.
+  const txHz = currentQsoFreqHz != null ? `${Math.round(currentQsoFreqHz)} Hz` : 'the default freq';
+  if (ft8ReplySlotMs != null) {
+    const heard = slotParityLabel(ft8ReplySlotMs);
+    console.log(`[ft8] TX "${text}" in the ${heard === 'Even' ? 'Odd' : 'Even'} slot @ ${txHz} — answering ${ft8Qso.getQso()?.partnerCall ?? 'a station'} heard in the ${heard} slot (${formatUtcTime(ft8ReplySlotMs)}Z)`);
+  } else {
+    console.log(`[ft8] TX "${text}" at the next slot @ ${txHz} (fresh CQ / no specific station)`);
+  }
   link.request('sendFt8', request).catch((err) => showError(`Couldn't send FT8 message: ${err.message}`));
 
   // Once the guided sequence has reached its final step, sending whatever's

@@ -477,6 +477,15 @@ class Ft8Bridge {
       // _transmitNow writes the already-encoded audio with no encode on the
       // critical path.
       this._pendingTxMessage = { message, freqHz: actualFreqHz, txParity, pcm, resolve, reject };
+      // Debug (journal): the slot this reply is actually queued for, so the
+      // on-air sequencing can be checked against the operator's WSJT-X.
+      console.log(
+        `[ft8] queued "${message}" for the ${txParity == null ? 'next (any parity)' : txParity === 0 ? 'Even' : 'Odd'} slot at ` +
+          `${new Date(sendAtMs).toISOString().slice(11, 19)}Z @ ${Math.round(actualFreqHz)} Hz` +
+          (replySlotMs == null
+            ? ' (fresh CQ / manual, no station answered)'
+            : ` — answering a station heard in the ${this.slotClock.slotParity(replySlotMs) === 0 ? 'Even' : 'Odd'} slot`)
+      );
       this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, {
         status: 'scheduled',
         message,
