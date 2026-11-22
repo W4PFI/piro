@@ -5194,22 +5194,23 @@ link.addEventListener('ft8-decodes', (event) => {
         ft8RowClickTimer = null;
       }
       ft8PendingRowSel = null;
-      if (advancedRow) {
-        // This is the partner's reply that already advanced the sequence this
-        // slot, so OUR response is staged (applyFt8Suggestion on qsoAdvanced).
-        // engage() would return null here (it only starts a QSO), so DON'T
-        // re-engage -- that would copy the decoded message over our reply.
-        // Re-apply the staged reply (in case the composer was touched), lock
-        // the reply-slot parity to the slot we heard them in, and send ours.
+      // This row advanced the sequence when its slot rendered, so OUR reply is
+      // the staged qsoAdvanced suggestion -- but only if the sequencer is STILL
+      // on that same QSO. If the operator engaged a different station since
+      // this slot rendered, qsoAdvanced is stale: fall through to the normal
+      // engage path (which won't auto-send a mid-QSO row) rather than transmit
+      // a reply the sequencer is no longer tracking.
+      if (advancedRow && qsoAdvanced && ft8Qso.getQso()?.partnerCall === qsoAdvanced.partnerCall) {
         // Lock our reply-slot parity to the slot we FIRST heard this partner
         // in: only (re)set it when the partner changes (a new QSO). On later
         // rounds the parity stays locked, so a decode that wanders parity
         // can't flip our transmit slot. See ft8ParityLockPartner.
-        const partner = activeQso && activeQso.partnerCall;
+        const partner = qsoAdvanced.partnerCall;
         if (partner && partner !== ft8ParityLockPartner) {
           if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
           ft8ParityLockPartner = partner;
         }
+        // Re-apply the staged reply (the composer may have been touched) and send.
         applyFt8Suggestion(qsoAdvanced);
         sendFt8Message();
         return;
