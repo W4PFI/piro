@@ -343,7 +343,10 @@ export class Ft8QsoSequencer {
     const parsed = parseFt8Message(decoded.msg);
     if (parsed.isCq) return null;
     if (parsed.toCall === this.myCall) return null;
-    if (!parsed.fromCall || parsed.fromCall === this.myCall) return null;
+    // parseFt8Message sets fromCall to the second token even for free text
+    // (e.g. "TNX FER QSO" -> "FER"); only start a call if it's actually a
+    // callsign, else leave it to the non-auto-send copy-into-composer path.
+    if (!parsed.fromCall || parsed.fromCall === this.myCall || !CALLSIGN_RE.test(parsed.fromCall)) return null;
     return this._startCalling(parsed.fromCall, decoded, parsed.grid);
   }
 

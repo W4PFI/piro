@@ -4567,6 +4567,7 @@ function exitFt8Mode({ local = false, keepDataMode = false } = {}) {
 // the default CQ. Used when a band change means the station we were working
 // is no longer in front of us (see tuneFt8ToBand).
 function resetFt8QsoToCq() {
+  clearPendingRowSelection();
   ft8TableBodyEl.innerHTML = '';
   ft8Qso.reset();
   ft8ReplySlotMs = null;
@@ -4615,6 +4616,7 @@ function toggleFt8Variant() {
     showError(`Couldn't switch to ${ft8Variant}: ${err.message}`);
   });
 
+  clearPendingRowSelection();
   ft8TableBodyEl.innerHTML = '';
   ft8Qso.reset();
   ft8ReplySlotMs = null;
@@ -5013,6 +5015,7 @@ function setFt8UiVisible(active) {
     // partner/step from a previous session has no meaning once RX
     // decoding stops, and would otherwise silently resume "mid-QSO" the
     // next time FT8 mode is entered.
+    clearPendingRowSelection();
     ft8Qso.reset();
     callAlert.reset();
     ft8ReplySlotMs = null;
@@ -5264,16 +5267,22 @@ link.addEventListener('ft8-tx-status', (event) => {
   // (matched on the message text, since TX status is broadcast to every
   // browser). On cancel (Stop) or error the final never transmitted, so clear
   // the pending flag and leave the QSO + composer so Send can retry it.
-  if (ft8FinalResetPending != null && message === ft8FinalResetPending) {
+  if (ft8FinalResetPending != null && message === ft8FinalResetPending.message) {
     if (status === 'sent') {
+      // Only wrap up if the SAME QSO is still active -- if the operator
+      // engaged a new station while the final was in flight, leave that new
+      // QSO and its staged reply alone.
+      const cur = ft8Qso.getQso();
+      if (!cur || cur.partnerCall === ft8FinalResetPending.partnerCall) {
+        ft8Qso.reset();
+        ft8ReplySlotMs = null;
+        ft8ParityLockPartner = null;
+        currentQsoFreqHz = ft8DefaultTxFreqHz;
+        scopeDisplay.setQsoFreq(currentQsoFreqHz);
+        hideQsoStatus();
+        ft8ComposerInput.value = defaultCqMessage(stationCallsign, stationGrid);
+      }
       ft8FinalResetPending = null;
-      ft8Qso.reset();
-      ft8ReplySlotMs = null;
-      ft8ParityLockPartner = null;
-      currentQsoFreqHz = ft8DefaultTxFreqHz;
-      scopeDisplay.setQsoFreq(currentQsoFreqHz);
-      hideQsoStatus();
-      ft8ComposerInput.value = defaultCqMessage(stationCallsign, stationGrid);
     } else if (status === 'cancelled' || status === 'error') {
       ft8FinalResetPending = null;
     }
@@ -5327,6 +5336,17 @@ function engageFt8Row(msg, slotStartMs) {
 // A single row-click stages its selection on the double-click timer; if Send
 // is pressed before it fires, apply the pending selection first so Send uses
 // the row the operator picked, not the previous composer contents.
+// Drops a pending single-click row selection WITHOUT engaging it -- used by
+// the session-reset paths (band/variant change, leaving FT8) so a click made
+// just before the reset can't engage the old decode after the 250 ms timer.
+function clearPendingRowSelection() {
+  if (ft8RowClickTimer) {
+    clearTimeout(ft8RowClickTimer);
+    ft8RowClickTimer = null;
+  }
+  ft8PendingRowSel = null;
+}
+
 function flushPendingRowSelection() {
   if (ft8RowClickTimer) {
     clearTimeout(ft8RowClickTimer);
@@ -5340,10 +5360,11 @@ function flushPendingRowSelection() {
 }
 
 // A guided QSO's final reply (RR73/73) is only *scheduled* when Send runs,
-// not yet on the air. This holds that final message's text while its send is
-// in flight (else null), so the QSO is wrapped up only once the transmission
-// actually goes out -- letting Stop/cancel retry it. See the ft8-tx-status
-// handler.
+// not yet on the air. This holds {message, partnerCall} of that final while
+// its send is in flight (else null), so the QSO is wrapped up only once the
+// transmission actually goes out AND the same QSO is still active -- letting
+// Stop/cancel retry it, and not clobbering a new QSO engaged meanwhile. See
+// the ft8-tx-status handler.
 let ft8FinalResetPending = null;
 function sendFt8Message() {
   flushPendingRowSelection();
@@ -5405,7 +5426,8 @@ function sendFt8Message() {
   // the transmission actually goes out ('sent'). On cancel/error the final
   // never transmitted, so the QSO and composer are left intact to retry
   // rather than starting a fresh CQ. See the ft8-tx-status handler.
-  ft8FinalResetPending = ft8Qso.getQso()?.step === 'complete' ? text : null;
+  const finalQso = ft8Qso.getQso();
+  ft8FinalResetPending = finalQso?.step === 'complete' ? { message: text, partnerCall: finalQso.partnerCall } : null;
 }
 
 // While a transmission is scheduled the Send button becomes a red Stop that
