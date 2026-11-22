@@ -313,14 +313,15 @@ export class Ft8QsoSequencer {
   }
 
   _startFromCq(parsed, decoded) {
-    return this._startCalling(parsed.cqCall, decoded);
+    return this._startCalling(parsed.cqCall, decoded, parsed.cqGrid);
   }
 
   // Starts a QSO by calling `call` — the station whose CQ we answered, or any
   // station we heard and chose to work (see startCalling) — with our standard
   // first transmission, "THEIRCALL MYCALL MYGRID".
-  _startCalling(call, decoded) {
-    this.qso = { partnerCall: call, role: 'caller', step: 'awaiting-report', freqHz: decoded.freq };
+  _startCalling(call, decoded, grid) {
+    this.qso = { partnerCall: call, role: 'caller', step: 'awaiting-report', freqHz: decoded.freq,
+      grid: grid || null, reportSent: null, reportRcvd: null, startedAt: Date.now() };
     this._seeking = false;
     return this._suggestion(
       `${call} ${this.myCall} ${gridField(this.myGrid)}`,
@@ -343,11 +344,12 @@ export class Ft8QsoSequencer {
     if (parsed.isCq) return null;
     if (parsed.toCall === this.myCall) return null;
     if (!parsed.fromCall || parsed.fromCall === this.myCall) return null;
-    return this._startCalling(parsed.fromCall, decoded);
+    return this._startCalling(parsed.fromCall, decoded, parsed.grid);
   }
 
   _startFromReply(parsed, decoded) {
-    this.qso = { partnerCall: parsed.fromCall, role: 'cqer', step: 'awaiting-ack', freqHz: decoded.freq };
+    this.qso = { partnerCall: parsed.fromCall, role: 'cqer', step: 'awaiting-ack', freqHz: decoded.freq,
+      grid: parsed.grid || null, reportSent: formatReport(decoded.snr), reportRcvd: null, startedAt: Date.now() };
     this._seeking = false;
     return this._suggestion(
       `${parsed.fromCall} ${this.myCall} ${formatReport(decoded.snr)}`,
@@ -362,6 +364,8 @@ export class Ft8QsoSequencer {
     if (role === 'caller' && step === 'awaiting-report' && parsed.report) {
       this.qso.step = 'awaiting-final';
       this.qso.freqHz = decoded.freq;
+      this.qso.reportRcvd = parsed.report; // their report of us
+      this.qso.reportSent = formatReport(decoded.snr); // our report of them
       return this._suggestion(
         `${partnerCall} ${this.myCall} R${formatReport(decoded.snr)}`,
         decoded.freq,
@@ -384,6 +388,7 @@ export class Ft8QsoSequencer {
     if (role === 'cqer' && step === 'awaiting-ack' && parsed.ackReport) {
       this.qso.step = 'complete';
       this.qso.freqHz = decoded.freq;
+      this.qso.reportRcvd = parsed.ackReport; // their R-report of us
       return this._suggestion(
         `${partnerCall} ${this.myCall} RR73`,
         decoded.freq,

@@ -5069,6 +5069,9 @@ function formatUtcTime(ms) {
 // station is listening in (see sendFt8Message() and ft8-bridge.js).
 // null for a fresh CQ or a manual send with no specific station.
 let ft8ReplySlotMs = null;
+// The last completed guided QSO we auto-logged (partnerCall|startedAt), so
+// we send logQso once per QSO, not every slot it sits 'complete'.
+let ft8LoggedQsoKey = null;
 // The station our transmit-slot parity is locked to for the current QSO.
 // Set when a QSO starts (answering a CQ, or someone answering our CQ) and
 // held until it ends or a fresh CQ goes out, so a later decode that wanders
@@ -5100,6 +5103,25 @@ link.addEventListener('ft8-decodes', (event) => {
   const qsoAdvanced = ft8Qso.ingestDecodes(sorted);
   applyFt8Suggestion(qsoAdvanced);
   const activeQso = ft8Qso.getQso();
+  // A completed guided QSO: log it once. The server emits a WSJT-X
+  // Logged-ADIF UDP datagram for any logger to pick up and fills the RF
+  // frequency from its own dial state; it's a no-op if logging isn't
+  // configured. Deduped by partnerCall|startedAt so it fires once, not every
+  // slot the QSO sits 'complete'.
+  if (activeQso && activeQso.step === 'complete' && activeQso.partnerCall) {
+    const key = `${activeQso.partnerCall}|${activeQso.startedAt}`;
+    if (key !== ft8LoggedQsoKey) {
+      ft8LoggedQsoKey = key;
+      link.request('logQso', {
+        call: activeQso.partnerCall,
+        grid: activeQso.grid || undefined,
+        mode: ft8Variant,
+        rstSent: activeQso.reportSent || undefined,
+        rstRcvd: activeQso.reportRcvd || undefined,
+        startedAt: activeQso.startedAt,
+      }).catch((err) => showError(`Couldn't log the QSO: ${err.message}`));
+    }
+  }
 
   // Someone calling us: a chime (once per caller; see call-alert.js), and their rows marked.
   const callers = callAlert.check(sorted, slotStartMs, stationCallsign);
