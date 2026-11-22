@@ -89,6 +89,7 @@ const REQUEST = {
   GET_TX_POWER: 'getTxPower',
   SET_RX_GAIN: 'setRxGain', // {value: 0-255}
   GET_RX_GAIN: 'getRxGain',
+  LOG_QSO: 'logQso', // {call, grid?, mode?, rstSent?, rstRcvd?, freqHz?, startedAt?} -> logs a completed guided QSO by emitting a WSJT-X Logged-ADIF UDP datagram (if WSJTX_UDP_PORT is set); see server/wsjtx-logger.js
   SET_DIGITAL_TX_GAIN: 'setDigitalTxGain', // {db: number} -> software gain (dB, same steps as Mic gain) on the server-generated digital TX audio (FT8/FT4/WSPR/JS8/RTTY/JTTY/Olivia/Hell/VARA/SSTV/EasyPal/RADE) before the USB codec; like WSJT-X's Pwr slider, for setting drive while watching ALC. Applied server-side in audio-bridge.js#writeGenerated; never touches mic/voice audio.
   SET_FT8_ACTIVE: 'setFt8Active', // {active: boolean} -> arms/disarms FT8 RX decoding; see ft8-bridge.js
   SEND_FT8: 'sendFt8', // {message: string, freqHz?: number, replySlotMs?: number} -> encodes and transmits at the next FT8/FT4 slot boundary of the correct parity; freqHz optionally targets a specific audio frequency (see ft8-qso.js); replySlotMs is the slot (epoch ms) a reply is answering, so the transmission lands in the opposite-parity slot the station is listening in (omit for a fresh CQ / manual send); see ft8-bridge.js

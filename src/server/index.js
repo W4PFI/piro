@@ -10,6 +10,7 @@ const { AudioBridge } = require('./audio-bridge');
 const { ScopeBridge } = require('./scope-bridge');
 const { CwDecoderBridge } = require('./cw-decoder-bridge');
 const { RigctlServer } = require('./rigctl-server');
+const { WsjtxLogger } = require('./wsjtx-logger');
 const { IcomLanServer } = require('./icom-lan-server');
 const { watchRadio } = require('./radio-watch');
 const { loginConfigErrors } = require('./login-proxy');
@@ -325,6 +326,11 @@ const STATIC_DIR = process.env.STATIC_DIR || path.join(__dirname, '../client');
 // radio/firmware/baud-rate — confirm with test/manual-scope-test.js
 // before enabling this for real use. See docs/civ-notes.md.
 const SCOPE_ENABLED = /^(1|true)$/i.test(process.env.CIV_SCOPE_ENABLED || '');
+// WSJT-X-style UDP logging of completed guided QSOs (off unless the port is
+// set). A logger/gateway speaking the WSJT-X protocol (GridTracker,
+// WaveLogGate, ...) listens on this host:port. See server/wsjtx-logger.js.
+const WSJTX_UDP_PORT = process.env.WSJTX_UDP_PORT ? parseInt(process.env.WSJTX_UDP_PORT, 10) : 0;
+const WSJTX_UDP_HOST = (process.env.WSJTX_UDP_HOST || '127.0.0.1').trim();
 
 // Best-effort: forces the radio's own internal "AF output level to
 // ACC/USB" and "MOD input level from USB" CI-V settings to maximum (255)
@@ -539,6 +545,11 @@ async function main() {
     digitalTxGainMinDb: DIGITAL_TX_GAIN_MIN_DB,
     idleLogout: { minutes: IDLE_LOGOUT_MINUTES, url: IDLE_LOGOUT_URL },
   });
+  if (WSJTX_UDP_PORT) {
+    const wsjtxLogger = new WsjtxLogger({ host: WSJTX_UDP_HOST, port: WSJTX_UDP_PORT, myCall: STATION_CALLSIGN || '', myGrid: STATION_GRID || '' });
+    controlServer.on('log-qso', (qso) => wsjtxLogger.log(qso));
+    console.log(`QSO logging on: a completed guided QSO is sent as WSJT-X Logged-ADIF to udp ${WSJTX_UDP_HOST}:${WSJTX_UDP_PORT}.`);
+  }
   if (lan) {
     controlServer.on('client-connected', (ws) => {
       if (civ.timeoutWarning) controlServer.sendJsonEvent(ws, EVENT.RIG_ERROR, { message: civ.timeoutWarning });

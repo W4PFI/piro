@@ -6092,6 +6092,26 @@ reads `slot HH:MM:SSZ · Even` and the scheduled-send status reads
 queued for. Client only (app.js, via the existing slotParityLabel()).
 Service-worker cache v164.
 
+### FT8/FT4: auto-log a completed guided QSO (WSJT-X UDP) (v165)
+
+When a guided QSO reaches `step === 'complete'`, the client sends a `logQso`
+request and the server emits a standard **WSJT-X "Logged ADIF" (type 12) UDP
+datagram** -- the same thing WSJT-X sends, so any logger that already listens
+for it (GridTracker, JTAlert, WaveLogGate, ...) picks it up with no PiRO-
+specific glue. Off unless `WSJTX_UDP_PORT` is set.
+
+- The sequencer (`ft8-qso.js`) records the partner's grid, the reports sent
+  and received, and the QSO start time as the exchange advances.
+- `app.js` fires `logQso` once per QSO on completion, deduped client-side by
+  `partnerCall|startedAt` so it can't double-log across slots.
+- `ws-server.js` (`LOG_QSO`) fills the RF frequency from the server's own dial
+  state (not the audio-offset) and emits `log-qso`; `index.js` wires that to
+  `server/wsjtx-logger.js` (`WsjtxLogger`: QDataStream type-12 encoder + ADIF
+  builder + a short dedup window). Only a type-12 datagram is sent, to avoid
+  the double-log some tools do when they also see other message types.
+- Config: `WSJTX_UDP_PORT` (enables it) and `WSJTX_UDP_HOST` (default
+  127.0.0.1). Service-worker cache v165.
+
 ### FT8/FT4: double-click a decode row to send (v156)
 
 Builds on the existing click-to-engage guided QSO: a **single click** still

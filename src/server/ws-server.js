@@ -1579,6 +1579,20 @@ class ControlServer extends EventEmitter {
           ws.send(makeResult(id, { value }));
           break;
         }
+        case REQUEST.LOG_QSO: {
+          if (typeof msg.call !== 'string' || !msg.call.trim()) {
+            throw new Error('"call" is required');
+          }
+          // Internal-only event -> index.js wires it to the WSJT-X logger
+          // (same pattern as 'ft8-send'). A no-op if logging isn't configured.
+          this.emit('log-qso', {
+            call: msg.call, grid: msg.grid, mode: msg.mode,
+            rstSent: msg.rstSent, rstRcvd: msg.rstRcvd,
+            freqHz: this.state.frequency ?? msg.freqHz, startedAt: msg.startedAt,
+          });
+          ws.send(makeResult(id, { accepted: true }));
+          break;
+        }
         case REQUEST.SET_DIGITAL_TX_GAIN: {
           const minDb = this.state.digitalTxGainMinDb ?? -50;
           // Attenuation-only: 0 dB (unity) down to the configured floor.
