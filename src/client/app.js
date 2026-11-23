@@ -5289,7 +5289,7 @@ link.addEventListener('ft8-tx-status', (event) => {
       ft8StatusEl.textContent = `Scheduled: "${message}" — ${sendAtMs != null ? `${formatUtcTime(sendAtMs)}Z · ${slotParityLabel(sendAtMs)}` : 'next slot'}`;
       break;
     case 'sending':
-      ft8StatusEl.textContent = `Sending: "${message}"…`;
+      ft8StatusEl.textContent = `Sending: "${message}" · ${slotParityLabel(Date.now())}…`;
       break;
     case 'sent':
       ft8StatusEl.textContent = `Sent: "${message}"`;
