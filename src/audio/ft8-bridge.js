@@ -1,6 +1,7 @@
 'use strict';
 
 const { ensureDataMode } = require('../civ/data-mode-guard');
+const { Ft8AutoSequencer } = require('../server/ft8-auto-sequencer');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 const { encodeFT8, encodeFT4 } = require('@e04/ft8ts');
@@ -183,6 +184,10 @@ class Ft8Bridge {
     if (!audioBridge) throw new Error('Ft8Bridge requires opts.audioBridge');
     this.civ = civ;
     this.controlServer = controlServer;
+    // Server-side guided-QSO auto-sequencer: when armed (Auto on + a QSO
+    // engaged), it generates the decode-triggered replies here, with no
+    // round-trip to the browser. See audio/ft8-auto-sequencer.js.
+    this._autoSequencer = new Ft8AutoSequencer({ myCall: controlServer.state && controlServer.state.stationCallsign });
     this.audioBridge = audioBridge;
     this.dataSettleMs = dataSettleMs; // see civ/data-mode-guard.js
     // Keyed the same way as PROTOCOLS/this._protocol above, so
@@ -277,6 +282,8 @@ class Ft8Bridge {
     };
     this._onVariantRequest = (variant) => this.setVariant(variant);
     this._onAbortRequest = () => this.cancelPendingTx('the transmission was canceled');
+    this._onArmAuto = (ctx) => this._autoSequencer.arm(ctx || {});
+    this._onDisarmAuto = () => this._autoSequencer.disarm();
 
     this.controlServer.on('ptt', this._onPtt);
     this.controlServer.on('ft8-active', this._onActiveRequest);
@@ -284,6 +291,8 @@ class Ft8Bridge {
     this.controlServer.on('psk-spot-enabled', this._onPskSpotEnabledRequest);
     this.controlServer.on('ft8-variant', this._onVariantRequest);
     this.controlServer.on('ft8-abort', this._onAbortRequest);
+    this.controlServer.on('ft8-arm-auto', this._onArmAuto);
+    this.controlServer.on('ft8-disarm-auto', this._onDisarmAuto);
     this.slotClock.on('boundary', this._onBoundary);
     this.worker.on('message', this._onWorkerMessage);
     this.worker.on('error', (err) => console.error('[ft8] decode worker error:', err.message));
@@ -304,6 +313,8 @@ class Ft8Bridge {
     this.controlServer.off('psk-spot-enabled', this._onPskSpotEnabledRequest);
     this.controlServer.off('ft8-variant', this._onVariantRequest);
     this.controlServer.off('ft8-abort', this._onAbortRequest);
+    this.controlServer.off('ft8-arm-auto', this._onArmAuto);
+    this.controlServer.off('ft8-disarm-auto', this._onDisarmAuto);
     this.slotClock.off('boundary', this._onBoundary);
     if (this._pttReleaseTimer) clearTimeout(this._pttReleaseTimer);
     if (this._earlyDecodeTimer) clearTimeout(this._earlyDecodeTimer);
@@ -621,6 +632,17 @@ class Ft8Bridge {
         this._rememberCallsigns(discoveredCallsigns);
         this.controlServer.broadcastJsonEvent(EVENT.FT8_DECODES, { slotStartMs, messages });
         this._reportSpots(messages, slotStartMs);
+        // Server-side auto-sequence: if armed, advance on this slot's decodes
+        // and queue the reply NOW -- no browser round-trip, so it reliably
+        // makes the next slot (see ft8-auto-sequencer.js).
+        if (this._autoSequencer && this._autoSequencer.active) {
+          const reply = this._autoSequencer.advance(messages);
+          if (reply) {
+            if (FT8_DECODE_TIMING) console.log(`[ft8] auto-reply "${reply.message}" (${reply.step})`);
+            const opts = reply.freqHz != null ? { freqHz: reply.freqHz, replySlotMs: slotStartMs } : { replySlotMs: slotStartMs };
+            this.send(reply.message, opts).catch((err) => console.error('[ft8] auto-reply failed:', err.message));
+          }
+        }
         if (FT8_DECODE_TIMING) {
           console.log(
             `[ft8] decoded (${early ? 'early' : 'boundary'}): ${messages.length} msg in ` +

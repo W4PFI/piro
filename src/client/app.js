@@ -624,6 +624,10 @@ let ft8SendInFlight = false;
 // Auto-send armed (the Auto toggle): while on, a guided-QSO reply is queued
 // the moment the sequence advances, with no double-click. Off by default.
 let ft8AutoSend = false;
+// True while the SERVER is auto-sequencing the current QSO (armed via
+// armAutoQso): the decode-triggered replies are generated server-side with no
+// browser round-trip, so the client must not also auto-send them.
+let ft8ServerSeq = false;
 let ft8TrimmedTx = null; // exact outgoing text whose grid we trimmed on the last local send (for the status-line flag)
 // Chimes when an FT8/FT4 station calls us (see call-alert.js).
 const callAlert = new CallAlert();
@@ -4572,6 +4576,7 @@ function exitFt8Mode({ local = false, keepDataMode = false } = {}) {
 // is no longer in front of us (see tuneFt8ToBand).
 function resetFt8QsoToCq() {
   clearPendingRowSelection();
+  disarmServerAuto();
   ft8TableBodyEl.innerHTML = '';
   ft8Qso.reset();
   ft8ReplySlotMs = null;
@@ -4625,6 +4630,7 @@ function toggleFt8Variant() {
   ft8Qso.reset();
   ft8ReplySlotMs = null;
   ft8ParityLockPartner = null;
+  disarmServerAuto();
   hideQsoStatus();
 
   if (ft8LastBandName && ft8FrequencyTable()[ft8LastBandName] != null) {
@@ -5141,7 +5147,7 @@ link.addEventListener('ft8-decodes', (event) => {
   // can make the next slot (pairs with early decode). Lock the reply-slot
   // parity to the slot we heard them in, as a manual guided send does. Only a
   // real guided advance, never arbitrary decodes, and not mid-send.
-  if (ft8AutoSend && qsoAdvanced && activeQso && !ft8SendInFlight) {
+  if (ft8AutoSend && !ft8ServerSeq && qsoAdvanced && activeQso && !ft8SendInFlight) {
     const partner = activeQso.partnerCall;
     if (partner && partner !== ft8ParityLockPartner) {
       if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
@@ -5158,6 +5164,7 @@ link.addEventListener('ft8-decodes', (event) => {
     const key = `${activeQso.partnerCall}|${activeQso.startedAt}`;
     if (key !== ft8LoggedQsoKey) {
       ft8LoggedQsoKey = key;
+      ft8ServerSeq = false; // QSO done; server auto-sequencer has self-disarmed
       link.request('logQso', {
         call: activeQso.partnerCall,
         grid: activeQso.grid || undefined,
@@ -5220,7 +5227,7 @@ link.addEventListener('ft8-decodes', (event) => {
           // one case auto-send on qsoAdvanced can't cover (a click engages
           // via engage(), not ingestDecodes()).
           const staged = engageFt8Row(sel.msg, sel.slotStartMs);
-          if (staged && ft8AutoSend) sendFt8Message();
+          if (staged && ft8AutoSend) { sendFt8Message(); armServerAuto(); }
         }
       }, FT8_DBLCLICK_MS);
     });
@@ -5256,7 +5263,7 @@ link.addEventListener('ft8-decodes', (event) => {
       // Any other row: only auto-send when engaging produced a real guided
       // reply (a CQ answer / reply-to-our-CQ). If engage() had no response it
       // just stages the decode for the operator to confirm with Send.
-      if (engageFt8Row(msg, slotStartMs)) sendFt8Message();
+      if (engageFt8Row(msg, slotStartMs)) { sendFt8Message(); armServerAuto(); }
     });
     ft8TableBodyEl.appendChild(row);
   }
@@ -5503,10 +5510,32 @@ function setFt8SendMode(mode) {
   ft8SendBtn.disabled = mode === 'busy';
   ft8SendBtn.classList.toggle('ft8-composer__send--cancel', cancel);
 }
+// Hand the rest of a QSO WE are calling (we answered a CQ) to the server, so
+// its R-report/73 replies fire the instant a slot decodes, with no round-trip
+// (critical over a remote/Tailscale link). The initial call stays client-sent;
+// the CQer role (someone answering our CQ) stays client-driven for now.
+function armServerAuto() {
+  const qso = ft8Qso.getQso();
+  if (!ft8AutoSend || !qso || qso.role !== 'caller') return;
+  ft8ServerSeq = true;
+  link.request('armAutoQso', {
+    partnerCall: qso.partnerCall,
+    role: qso.role,
+    step: qso.step,
+    freqHz: currentQsoFreqHz,
+  }).catch(() => { ft8ServerSeq = false; });
+}
+function disarmServerAuto() {
+  if (!ft8ServerSeq) return;
+  ft8ServerSeq = false;
+  link.request('disarmAutoQso').catch(() => {});
+}
+
 function setFt8AutoSend(on) {
   ft8AutoSend = on;
   ft8AutoBtn.classList.toggle('is-armed', on);
   ft8AutoBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  if (!on) disarmServerAuto();
 }
 ft8AutoBtn.addEventListener('click', () => setFt8AutoSend(!ft8AutoSend));
 ft8SendBtn.addEventListener('click', handleFt8SendButton);

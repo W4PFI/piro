@@ -1277,6 +1277,16 @@ class ControlServer extends EventEmitter {
           ws.send(makeResult(id, { accepted: true }));
           break;
         }
+        case REQUEST.ARM_AUTO_QSO: {
+          this.emit('ft8-arm-auto', { partnerCall: msg.partnerCall, role: msg.role, step: msg.step, freqHz: msg.freqHz });
+          ws.send(makeResult(id, { accepted: true }));
+          break;
+        }
+        case REQUEST.DISARM_AUTO_QSO: {
+          this.emit('ft8-disarm-auto');
+          ws.send(makeResult(id, { accepted: true }));
+          break;
+        }
         case REQUEST.ABORT_FT8: {
           // Cancels a transmission scheduled for the next slot boundary but
           // not yet keyed up (Ft8Bridge#cancelPendingTx); a no-op once on the
