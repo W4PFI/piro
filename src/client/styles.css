@@ -559,6 +559,12 @@ button {
 .ft8-status--warn {
   color: var(--led-amber);
 }
+/* On-air transmit status: red, and wins over --warn (placed after it) so a
+   keyed radio always reads red. */
+.ft8-status--tx {
+  color: var(--led-red);
+  font-weight: 600;
+}
 
 /* Guided-QSO progress line (see src/client/ft8-qso.js) — distinct from
    .ft8-status above, which reports TX scheduling/send lifecycle; this

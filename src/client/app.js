@@ -5269,6 +5269,9 @@ link.addEventListener('ft8-tx-status', (event) => {
   const gridTrimNote = ft8TrimmedTx != null && message === ft8TrimmedTx
     && (status === 'scheduled' || status === 'sending' || status === 'sent');
   ft8StatusEl.classList.toggle('ft8-status--warn', gridTrimNote);
+  // On-air: 'sending' means the radio is actually keyed and transmitting, so
+  // flag it red (wins over the amber grid-trim note; see styles.css).
+  ft8StatusEl.classList.toggle('ft8-status--tx', status === 'sending');
   switch (status) {
     case 'scheduled':
       ft8StatusEl.textContent = `Scheduled: "${message}" — ${sendAtMs != null ? `${formatUtcTime(sendAtMs)}Z · ${slotParityLabel(sendAtMs)}` : 'next slot'}`;
