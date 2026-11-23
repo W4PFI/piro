@@ -1278,7 +1278,7 @@ class ControlServer extends EventEmitter {
           break;
         }
         case REQUEST.ARM_AUTO_QSO: {
-          this.emit('ft8-arm-auto', { partnerCall: msg.partnerCall, role: msg.role, step: msg.step, freqHz: msg.freqHz });
+          this.emit('ft8-arm-auto', { partnerCall: msg.partnerCall, role: msg.role, step: msg.step, freqHz: msg.freqHz, cqWatch: msg.cqWatch });
           ws.send(makeResult(id, { accepted: true }));
           break;
         }

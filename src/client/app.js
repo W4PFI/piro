@@ -5462,6 +5462,7 @@ function sendFt8Message() {
     // and drop any QSO parity lock (this starts a new sequence).
     ft8ReplySlotMs = null;
     ft8ParityLockPartner = null;
+    if (ft8AutoSend) armServerCqWatch();
   }
 
   // currentQsoFreqHz targets this transmission at the frequency the
@@ -5529,6 +5530,14 @@ function armServerAuto() {
     step: qso.step,
     freqHz: currentQsoFreqHz,
   }).catch(() => { ft8ServerSeq = false; });
+}
+// We just sent a CQ with Auto on: have the server watch for whoever answers
+// and reply to them (our report), then run the rest of that QSO -- all with no
+// browser round-trip. See ft8-auto-sequencer.js's cq-watch mode.
+function armServerCqWatch() {
+  ft8ServerSeq = true;
+  link.request('armAutoQso', { cqWatch: true, freqHz: currentQsoFreqHz })
+    .catch(() => { ft8ServerSeq = false; });
 }
 function disarmServerAuto() {
   if (!ft8ServerSeq) return;

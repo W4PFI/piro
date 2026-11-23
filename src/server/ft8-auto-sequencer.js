@@ -68,18 +68,30 @@ class Ft8AutoSequencer {
   }
 
   /**
-   * Arm for a QSO the client has engaged. role 'caller' = we answered their CQ
-   * (we send R-report then 73); 'cqer' = they answered our CQ (we send RR73).
+   * Arm. Three ways:
+   *  - { cqWatch: true, freqHz? } -> we just sent a CQ; watch for anyone
+   *    answering it ("MYCALL THEIRCALL GRID") and start the QSO by replying
+   *    with our report of them.
+   *  - { partnerCall, role: 'caller', ... } -> we answered their CQ; send the
+   *    R-report then 73.
+   *  - { partnerCall, role: 'cqer', ... } -> mid-QSO after they answered our CQ.
    */
-  arm({ partnerCall, role, step, freqHz } = {}) {
+  arm({ partnerCall, role, step, freqHz, cqWatch } = {}) {
+    if (!this.myCall) return false;
+    const fallbackFreq = Number.isFinite(freqHz) ? freqHz : null;
+    if (cqWatch) {
+      this.qso = { mode: 'cq-watch', freqHz: fallbackFreq };
+      return true;
+    }
     const call = (partnerCall || '').toUpperCase();
-    if (!this.myCall || !call) return false;
+    if (!call) return false;
     const r = role === 'cqer' ? 'cqer' : 'caller';
     this.qso = {
+      mode: 'qso',
       partnerCall: call,
       role: r,
       step: step || (r === 'cqer' ? 'awaiting-ack' : 'awaiting-report'),
-      freqHz: Number.isFinite(freqHz) ? freqHz : null,
+      freqHz: fallbackFreq,
     };
     return true;
   }
@@ -103,10 +115,28 @@ class Ft8AutoSequencer {
    */
   advance(messages) {
     if (!this.qso || !Array.isArray(messages) || messages.length === 0) return null;
-    const { role, step, partnerCall } = this.qso;
-    // Strongest first -- the clearest copy of the partner wins, matching the
-    // client, which sorts decodes by SNR descending before ingesting them.
+    // Strongest first -- the clearest copy wins, matching the client, which
+    // sorts decodes by SNR descending before ingesting them.
     const sorted = [...messages].sort((a, b) => (b.snr ?? -999) - (a.snr ?? -999));
+
+    // CQ-watch: we just CQ'd; the first station to answer us with a grid
+    // ("MYCALL THEIRCALL GRID") becomes the QSO, and we reply with our report
+    // of them. (A pileup -> the strongest answer, like WSJT-X.)
+    if (this.qso.mode === 'cq-watch') {
+      for (const m of sorted) {
+        if (!m || typeof m.msg !== 'string') continue;
+        const parsed = parseFt8Message(m.msg);
+        if (parsed.isCq) continue;
+        if (parsed.toCall !== this.myCall || !parsed.fromCall || parsed.fromCall === this.myCall || !parsed.grid) continue;
+        const partnerCall = parsed.fromCall;
+        const freqHz = Number.isFinite(m.freq) ? m.freq : this.qso.freqHz;
+        this.qso = { mode: 'qso', partnerCall, role: 'cqer', step: 'awaiting-ack', freqHz };
+        return { message: `${partnerCall} ${this.myCall} ${formatReport(m.snr)}`, freqHz, step: 'awaiting-ack' };
+      }
+      return null;
+    }
+
+    const { role, step, partnerCall } = this.qso;
     for (const m of sorted) {
       if (!m || typeof m.msg !== 'string') continue;
       const parsed = parseFt8Message(m.msg);
