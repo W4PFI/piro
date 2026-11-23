@@ -354,6 +354,18 @@ const DIGITAL_TX_GAIN_MIN_DB = (() => {
   return Math.max(-120, Math.min(-1, n));
 })();
 
+// The TX Adjust (digital TX drive) value the server starts at, so a setting
+// survives a service restart or reboot -- the live value is kept in memory and
+// shared across browsers, but resets to this on startup. Attenuation-only and
+// within the configured floor, same range as the slider. Default 0 (unity).
+const DIGITAL_TX_GAIN_DEFAULT_DB = (() => {
+  const raw = process.env.DIGITAL_TX_GAIN_DEFAULT_DB;
+  if (raw == null || raw === '') return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(DIGITAL_TX_GAIN_MIN_DB, Math.min(0, n));
+})();
+
 // TLS is optional but strongly recommended: without it, microphone access
 // (getUserMedia) is unavailable in the browser entirely on any origin
 // other than localhost, which breaks PTT/TX audio when accessed over the
@@ -543,6 +555,7 @@ async function main() {
     sourceCodeUrl: SOURCE_CODE_URL,
     allowedOrigins: ALLOWED_ORIGINS,
     digitalTxGainMinDb: DIGITAL_TX_GAIN_MIN_DB,
+    digitalTxGainDefaultDb: DIGITAL_TX_GAIN_DEFAULT_DB,
     idleLogout: { minutes: IDLE_LOGOUT_MINUTES, url: IDLE_LOGOUT_URL },
   });
   if (WSJTX_UDP_PORT) {
@@ -626,6 +639,10 @@ async function main() {
       rnnoiseWetLevels: RNNOISE_WET_LEVELS,
       hamnoiseQuality: HAMNOISE_QUALITY,
     });
+    // Start the generated-TX drive at the configured default (see
+    // DIGITAL_TX_GAIN_DEFAULT_DB); the connect snapshot carries the matching
+    // dB so every browser's TX Adjust slider shows it.
+    audioBridge.setGeneratedTxGainDb(DIGITAL_TX_GAIN_DEFAULT_DB);
     await audioBridge.start();
     controlServer.setAudioInfo({
       enabled: true,

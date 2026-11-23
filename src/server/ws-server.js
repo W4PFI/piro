@@ -178,6 +178,7 @@ class ControlServer extends EventEmitter {
     stationGrid,
     rnnoiseLevelCount = 5,
     digitalTxGainMinDb = -50,
+    digitalTxGainDefaultDb = 0,
     sourceCodeUrl,
     pttWatchdogMs = 10 * 60 * 1000,
     heartbeatMs = HEARTBEAT_MS,
@@ -486,7 +487,7 @@ class ControlServer extends EventEmitter {
       // until a browser changes it; updated and broadcast in
       // SET_DIGITAL_TX_GAIN, and sent in this snapshot so a connecting
       // browser adopts it instead of pushing its own remembered value.
-      digitalTxGainDb: 0,
+      digitalTxGainDb: Math.max(digitalTxGainMinDb, Math.min(0, digitalTxGainDefaultDb)),
       // Whether the "HamNoise" button (beneath "RNN") is currently armed —
       // see REQUEST.SET_HAMNOISE_ENABLED / audio-bridge.js#setHamNoiseEnabled.
       // A plain boolean, not a level like RNN's — HamNoise has no wet-ratio

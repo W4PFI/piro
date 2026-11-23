@@ -2138,6 +2138,7 @@ All settings are environment variables. For the systemd service they go in
 | `RADE_VERSION` | `v1` | `v1` (stable) or `v2` (under development; both ends must match). |
 | `RADE_TX_GAIN` | `4` | Transmit drive multiplier for RADE. |
 | `DIGITAL_TX_GAIN_MIN_DB` | `-50` | Floor (most-negative dB) of the **TX Adjust** control for generated digital modes (FT8/FT4/WSPR/JS8/RTTY/SSTV/FreeDV/…). Attenuation-only; clamped to `[-120, -1]`. |
+| `DIGITAL_TX_GAIN_DEFAULT_DB` | `0` | The **TX Adjust** value the server starts at, so it survives a restart or reboot (the live value is shared across browsers and kept in memory, but resets to this on startup). Attenuation-only, within the floor above. |
 | `FREEDV_REPORTER_ENABLED` | on | `0` or `false` stops any reporting to the FreeDV Reporter. Reporting also needs the "FDV Spot" box ticked in the UI. |
 | `FREEDV_REPORTER_HOST` | public service | Only for testing against your own Reporter server. |
 
