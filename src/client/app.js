@@ -580,6 +580,7 @@ const wsprStatusEl = document.getElementById('wspr-status');
 const ft8PanelLabelEl = document.getElementById('ft8-panel-label');
 const ft8ComposerInput = document.getElementById('ft8-composer-input');
 const ft8SendBtn = document.getElementById('ft8-send-btn');
+const ft8AutoBtn = document.getElementById('ft8-auto-btn');
 const ft8StatusEl = document.getElementById('ft8-status');
 const freeDvReportSectionEl = document.getElementById('freedv-report-section');
 const freeDvMessageInput = document.getElementById('freedv-message-input');
@@ -620,6 +621,9 @@ let hasRequestedDefaultSpan = false; // auto-request the default span exactly on
 let ft8Active = false;
 let ft8LastBandName = null; // which band FT8's auto-tune last targeted, to detect a *new* band change rather than re-tuning on every frequency update
 let ft8SendInFlight = false;
+// Auto-send armed (the Auto toggle): while on, a guided-QSO reply is queued
+// the moment the sequence advances, with no double-click. Off by default.
+let ft8AutoSend = false;
 let ft8TrimmedTx = null; // exact outgoing text whose grid we trimmed on the last local send (for the status-line flag)
 // Chimes when an FT8/FT4 station calls us (see call-alert.js).
 const callAlert = new CallAlert();
@@ -5016,6 +5020,7 @@ function setFt8UiVisible(active) {
     // decoding stops, and would otherwise silently resume "mid-QSO" the
     // next time FT8 mode is entered.
     clearPendingRowSelection();
+    setFt8AutoSend(false);
     ft8Qso.reset();
     callAlert.reset();
     ft8ReplySlotMs = null;
@@ -5119,6 +5124,19 @@ link.addEventListener('ft8-decodes', (event) => {
     console.log(`[ft8] QSO advanced in the ${slotParityLabel(slotStartMs)} slot (${formatUtcTime(slotStartMs)}Z) — staged reply "${qsoAdvanced.txText}"`);
   }
   const activeQso = ft8Qso.getQso();
+  // Auto-send: if armed and the partner's reply advanced the guided sequence
+  // this slot, queue OUR staged reply immediately -- no double-click -- so it
+  // can make the next slot (pairs with early decode). Lock the reply-slot
+  // parity to the slot we heard them in, as a manual guided send does. Only a
+  // real guided advance, never arbitrary decodes, and not mid-send.
+  if (ft8AutoSend && qsoAdvanced && activeQso && !ft8SendInFlight) {
+    const partner = activeQso.partnerCall;
+    if (partner && partner !== ft8ParityLockPartner) {
+      if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
+      ft8ParityLockPartner = partner;
+    }
+    sendFt8Message();
+  }
   // A completed guided QSO: log it once. The server emits a WSJT-X
   // Logged-ADIF UDP datagram for any logger to pick up and fills the RF
   // frequency from its own dial state; it's a no-op if logging isn't
@@ -5449,6 +5467,12 @@ function setFt8SendMode(mode) {
   ft8SendBtn.disabled = mode === 'busy';
   ft8SendBtn.classList.toggle('ft8-composer__send--cancel', cancel);
 }
+function setFt8AutoSend(on) {
+  ft8AutoSend = on;
+  ft8AutoBtn.classList.toggle('is-armed', on);
+  ft8AutoBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+ft8AutoBtn.addEventListener('click', () => setFt8AutoSend(!ft8AutoSend));
 ft8SendBtn.addEventListener('click', handleFt8SendButton);
 ft8ComposerInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') handleFt8SendButton();

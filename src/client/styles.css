@@ -532,6 +532,12 @@ button {
   color: var(--led-red);
   background: color-mix(in srgb, var(--led-red) 14%, var(--panel-raised));
 }
+/* Auto-send armed: amber to signal it will transmit replies on its own. */
+.ft8-composer__auto.is-armed {
+  border-color: var(--led-amber);
+  color: var(--led-amber);
+  background: color-mix(in srgb, var(--led-amber) 16%, var(--panel-raised));
+}
 .ft8-composer__send:disabled {
   opacity: 0.45;
   cursor: not-allowed;
