@@ -6092,6 +6092,19 @@ reads `slot HH:MM:SSZ · Even` and the scheduled-send status reads
 queued for. Client only (app.js, via the existing slotParityLabel()).
 Service-worker cache v164.
 
+### FT8/FT4: opt-in slot/parity debug logging (v166)
+
+Optional `[ft8]` logging for checking the on-air sequencing against WSJT-X,
+off by default:
+- **Browser console** (`FT8_DEBUG`): each slot that advances a guided QSO logs
+  the Even/Odd slot it was heard in and the staged reply, and each send logs
+  the transmit slot, frequency, and the station/slot being answered. Enable
+  with `?ft8debug` in the URL or `localStorage['piro-ft8-debug'] = '1'`.
+- **Server journal** (`FT8_SLOT_DEBUG=1`): logs the slot and parity each reply
+  is actually queued for.
+Both reuse the existing `slotParityLabel()` / `SlotClock#slotParity()` and add
+no work when disabled. Service-worker cache v166.
+
 ### FT8/FT4: double-click a decode row to send (v156)
 
 Builds on the existing click-to-engage guided QSO: a **single click** still

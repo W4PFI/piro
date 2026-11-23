@@ -5079,6 +5079,15 @@ function slotParityLabel(slotStartMs) {
 // reply is scheduled in the opposite slot parity -- the one the far
 // station is listening in (see sendFt8Message() and ft8-bridge.js).
 // null for a fresh CQ or a manual send with no specific station.
+// Opt-in [ft8] sequencing debug logs to the browser console (slot parity,
+// the staged reply, and each transmit). Enable with ?ft8debug in the URL or
+// localStorage 'piro-ft8-debug' = '1'; off by default.
+const FT8_DEBUG = (() => {
+  try {
+    return new URLSearchParams(location.search).has('ft8debug')
+      || localStorage.getItem('piro-ft8-debug') === '1';
+  } catch { return false; }
+})();
 let ft8ReplySlotMs = null;
 // The station our transmit-slot parity is locked to for the current QSO.
 // Set when a QSO starts (answering a CQ, or someone answering our CQ) and
@@ -5110,6 +5119,9 @@ link.addEventListener('ft8-decodes', (event) => {
   // the previous one.
   const qsoAdvanced = ft8Qso.ingestDecodes(sorted);
   applyFt8Suggestion(qsoAdvanced);
+  if (FT8_DEBUG && qsoAdvanced) {
+    console.log(`[ft8] QSO advanced in the ${slotParityLabel(slotStartMs)} slot (${formatUtcTime(slotStartMs)}Z) — staged reply "${qsoAdvanced.txText}"`);
+  }
   const activeQso = ft8Qso.getQso();
 
   // Someone calling us: a chime (once per caller; see call-alert.js), and their rows marked.
@@ -5381,6 +5393,15 @@ function sendFt8Message() {
   // Tell the server which slot we're answering, so it schedules this in
   // the opposite parity slot the station is listening in (ft8-bridge.js).
   if (ft8ReplySlotMs != null) request.replySlotMs = ft8ReplySlotMs;
+  if (FT8_DEBUG) {
+    const txHz = currentQsoFreqHz != null ? `${Math.round(currentQsoFreqHz)} Hz` : 'the default freq';
+    if (ft8ReplySlotMs != null) {
+      const heard = slotParityLabel(ft8ReplySlotMs);
+      console.log(`[ft8] TX "${text}" in the ${heard === 'Even' ? 'Odd' : 'Even'} slot @ ${txHz} — answering ${ft8Qso.getQso()?.partnerCall ?? 'a station'} heard in the ${heard} slot (${formatUtcTime(ft8ReplySlotMs)}Z)`);
+    } else {
+      console.log(`[ft8] TX "${text}" at the next slot @ ${txHz} (fresh CQ / no specific station)`);
+    }
+  }
   link.request('sendFt8', request).catch((err) => showError(`Couldn't send FT8 message: ${err.message}`));
 
   // Once the guided sequence has reached its final step, sending whatever's

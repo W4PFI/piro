@@ -4,6 +4,9 @@ const { ensureDataMode } = require('../civ/data-mode-guard');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 const { encodeFT8, encodeFT4 } = require('@e04/ft8ts');
+// Opt-in [ft8] queued-slot logging to the server journal (complements the
+// browser-side FT8_DEBUG). Enable with FT8_SLOT_DEBUG=1; off by default.
+const FT8_SLOT_DEBUG = /^(1|true)$/i.test(process.env.FT8_SLOT_DEBUG || '');
 const { SlotClock } = require('./slot-clock');
 const { downsamplePcmToFloat, upsampleFloatToPcm } = require('./resample');
 const { computeMagnitudeSpectrum } = require('./fft');
@@ -477,6 +480,15 @@ class Ft8Bridge {
       // _transmitNow writes the already-encoded audio with no encode on the
       // critical path.
       this._pendingTxMessage = { message, freqHz: actualFreqHz, txParity, pcm, resolve, reject };
+      if (FT8_SLOT_DEBUG) {
+        console.log(
+          `[ft8] queued "${message}" for the ${txParity == null ? 'next (any parity)' : txParity === 0 ? 'Even' : 'Odd'} slot at ` +
+            `${new Date(sendAtMs).toISOString().slice(11, 19)}Z @ ${Math.round(actualFreqHz)} Hz` +
+            (replySlotMs == null
+              ? ' (fresh CQ / manual, no station answered)'
+              : ` — answering a station heard in the ${this.slotClock.slotParity(replySlotMs) === 0 ? 'Even' : 'Odd'} slot`)
+        );
+      }
       this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, {
         status: 'scheduled',
         message,
