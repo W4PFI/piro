@@ -5369,6 +5369,19 @@ function engageFt8Row(msg, slotStartMs) {
   // manual editing (a one-off reply opposite this slot, no QSO and no parity
   // lock), but report it as NOT sendable so a double-click can't transmit an
   // arbitrary received message.
+  // If this row belongs to the active QSO (e.g. the partner's report or
+  // acknowledgement -- which engage() doesn't re-stage), ingestDecodes() has
+  // already staged OUR reply this slot, so keep it rather than dumping the
+  // partner's raw received text onto the composer. (This is the row the
+  // operator just saw come in; clicking it means "act on it", not "send it".)
+  const clickedQso = ft8Qso.getQso();
+  if (clickedQso && isRelatedToQso(msg, clickedQso)) {
+    ft8ComposerInput.focus();
+    return false;
+  }
+  // Otherwise it's free text / an unrelated station: copy it in for manual
+  // editing, as a one-off with no QSO and no parity lock. Still NOT sendable
+  // (return false), so a double-click can't transmit an arbitrary message.
   ft8ParityLockPartner = null;
   ft8ComposerInput.value = msg.msg || '';
   ft8ComposerInput.focus();
