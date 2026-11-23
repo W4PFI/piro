@@ -5522,7 +5522,7 @@ function setFt8SendMode(mode) {
 // the CQer role (someone answering our CQ) stays client-driven for now.
 function armServerAuto() {
   const qso = ft8Qso.getQso();
-  if (!ft8AutoSend || !qso || qso.role !== 'caller') return;
+  if (!ft8AutoSend || !qso || qso.step === 'complete') return;
   ft8ServerSeq = true;
   link.request('armAutoQso', {
     partnerCall: qso.partnerCall,
@@ -5549,7 +5549,18 @@ function setFt8AutoSend(on) {
   ft8AutoSend = on;
   ft8AutoBtn.classList.toggle('is-armed', on);
   ft8AutoBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  if (!on) disarmServerAuto();
+  if (!on) {
+    disarmServerAuto();
+    return;
+  }
+  // Arming mid-QSO: for the reply steps (awaiting-final / awaiting-ack) the
+  // sequencer already staged our reply while Auto was off and won't re-offer
+  // it, so send it now; then hand the rest of the exchange to the server.
+  const qso = ft8Qso.getQso();
+  if (qso && qso.step !== 'complete') {
+    if (qso.step === 'awaiting-final' || qso.step === 'awaiting-ack') sendFt8Message();
+    armServerAuto();
+  }
 }
 ft8AutoBtn.addEventListener('click', () => setFt8AutoSend(!ft8AutoSend));
 ft8SendBtn.addEventListener('click', handleFt8SendButton);
