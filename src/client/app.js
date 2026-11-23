@@ -5189,7 +5189,12 @@ link.addEventListener('ft8-decodes', (event) => {
   for (const msg of sorted) {
     const row = document.createElement('div');
     row.className = 'ft8-table__row';
-    if (isRelatedToQso(msg, activeQso)) row.classList.add('ft8-table__row--qso');
+    // Highlight a QSO's rows only while it's in progress -- once it's
+    // complete the contact is made, so don't keep flagging that station's
+    // CQs as if they still mattered.
+    if (activeQso && activeQso.step !== 'complete' && isRelatedToQso(msg, activeQso)) {
+      row.classList.add('ft8-table__row--qso');
+    }
     if (isToMe(msg)) row.classList.add('ft8-table__row--to-me');
     const advancedRow = qsoAdvanced && isRelatedToQso(msg, activeQso);
     if (advancedRow) {
