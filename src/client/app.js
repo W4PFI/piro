@@ -5201,7 +5201,15 @@ link.addEventListener('ft8-decodes', (event) => {
         ft8RowClickTimer = null;
         const sel = ft8PendingRowSel;
         ft8PendingRowSel = null;
-        if (sel) engageFt8Row(sel.msg, sel.slotStartMs);
+        if (sel) {
+          // Engage the guided QSO this click starts (answering a CQ /
+          // reply-to-our-CQ). If Auto is armed and a real reply was staged,
+          // send it straight away -- the first transmission is otherwise the
+          // one case auto-send on qsoAdvanced can't cover (a click engages
+          // via engage(), not ingestDecodes()).
+          const staged = engageFt8Row(sel.msg, sel.slotStartMs);
+          if (staged && ft8AutoSend) sendFt8Message();
+        }
       }, FT8_DBLCLICK_MS);
     });
     row.addEventListener('dblclick', () => {
