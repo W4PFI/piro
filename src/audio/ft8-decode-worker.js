@@ -16,6 +16,15 @@
  * goal intact for this part of the app (ft8ts itself is the one
  * accepted, deliberate exception — see README/LICENSE).
  *
+ * FT8 decoding further runs on ft8ts's `FT8DecoderPool`, which splits the
+ * band into one sub-band per thread and decodes them in parallel
+ * worker_threads (nested under this one), meeting after each pass to
+ * subtract each other's signals — the same scheme WSJT-X 3 uses. The pool
+ * is created lazily and kept for the life of this worker; its threads start
+ * on first use and sit idle between slots. FT4 has no pool in ft8ts (as in
+ * WSJT-X), so it stays on the single-threaded decodeFT4. Thread count and
+ * decode depth are set from the environment — see the constants below.
+ *
  * Protocol (all messages are plain objects via postMessage):
  *   -> { type: 'decode', requestId, samples: ArrayBuffer (Float32),
  *        sampleRate, knownCallsigns: string[], protocol?: 'FT8'|'FT4' }
@@ -45,7 +54,26 @@
  */
 
 const { parentPort } = require('node:worker_threads');
-const { decodeFT8, decodeFT4, HashCallBook } = require('@e04/ft8ts');
+const { decodeFT4, FT8DecoderPool, HashCallBook } = require('@e04/ft8ts');
+
+// Decode tuning, from the environment (documented in the README). Defaults
+// are chosen for a Raspberry Pi 4: 2 FT8 decode threads is the measured sweet
+// spot — the pool splits the band across that many cores, and using more
+// starves the main process (CI-V, audio, WebSocket) so decode actually gets
+// slower; depth 1 is WSJT-X "fast" (band-pass only), raise to 2 (BP+OSD) or 3
+// (deep) for more decodes of weak stations if the hardware has the headroom.
+const DECODE_THREADS = Math.max(1, parseInt(process.env.FT8_DECODE_THREADS || '', 10) || 2);
+const DECODE_DEPTH = Math.max(1, parseInt(process.env.FT8_DECODE_DEPTH || '', 10) || 1);
+const MAX_CANDIDATES = Math.max(1, parseInt(process.env.FT8_MAX_CANDIDATES || '', 10) || 80);
+
+// The FT8 decoder pool, created on first FT8 decode and reused thereafter.
+// With DECODE_THREADS === 1 the pool decodes on this worker thread (still off
+// the main thread), so there is no separate single-threaded FT8 path to keep.
+let ft8Pool = null;
+function getFt8Pool() {
+  if (!ft8Pool) ft8Pool = new FT8DecoderPool({ threads: DECODE_THREADS });
+  return ft8Pool;
+}
 
 // A generous, permissive shape check, not a strict callsign validator —
 // HashCallBook.save() already tolerates and ignores blank/short/`<...>`
@@ -66,15 +94,19 @@ function extractCallsigns(messageText) {
     .filter((tok) => tok && !tok.startsWith('<') && looksLikeCallsign(tok));
 }
 
-parentPort.on('message', (msg) => {
+parentPort.on('message', async (msg) => {
   if (msg.type !== 'decode') return;
   const { requestId, samples, sampleRate, knownCallsigns, protocol } = msg;
   try {
     const floatSamples = new Float32Array(samples);
     const book = new HashCallBook();
     for (const call of knownCallsigns) book.save(call);
-    const decodeFn = protocol === 'FT4' ? decodeFT4 : decodeFT8;
-    const messages = decodeFn(floatSamples, { sampleRate, hashCallBook: book });
+    const options = { sampleRate, depth: DECODE_DEPTH, maxCandidates: MAX_CANDIDATES, hashCallBook: book };
+    // FT8 goes through the multi-threaded pool (await: it resolves once all
+    // sub-band threads have met and finished); FT4 stays single-threaded.
+    const messages = protocol === 'FT4'
+      ? decodeFT4(floatSamples, options)
+      : await getFt8Pool().decode(floatSamples, options);
     const discoveredCallsigns = [];
     for (const m of messages) {
       for (const call of extractCallsigns(m.msg)) discoveredCallsigns.push(call);
