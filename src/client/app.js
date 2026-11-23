@@ -5050,10 +5050,22 @@ function hideQsoStatus() {
  * (see ft8-qso.js's module doc comment on why this is guidance, not
  * automation).
  */
+// Auto mode does the sending, so the guided status shouldn't tell the
+// operator to “send” anything. Reword the imperative forms into a
+// description of what the auto-sequence is doing/waiting for. Manual mode
+// keeps the original instructions.
+function autoPhraseStatus(text) {
+  return text
+    .replace(/ — send [^,]+, then watch for /, ' — watching for ')
+    .replace(/ — send (RR73|73) to complete the QSO\./, ' — sending $1 to complete the QSO.');
+}
+
 function applyFt8Suggestion(suggestion) {
   if (!suggestion) return;
   ft8ComposerInput.value = suggestion.txText;
-  if (suggestion.statusText) showQsoStatus(suggestion.statusText);
+  if (suggestion.statusText) {
+    showQsoStatus(ft8AutoSend ? autoPhraseStatus(suggestion.statusText) : suggestion.statusText);
+  }
   // Guided suggestions always carry their own tracked frequency in
   // practice (the decoded signal's own freq — see ft8-qso.js); the
   // fallback to the session's persisted default here is just defensive,
