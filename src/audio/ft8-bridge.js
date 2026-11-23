@@ -40,6 +40,20 @@ const FT8_EARLY_DECODE_MS = (() => {
 // When set, logs each decode's timing (ms, captured audio, early vs boundary)
 // to the journal, for tuning FT8_EARLY_DECODE_MS against the real decode time.
 const FT8_DECODE_TIMING = /^(1|true)$/i.test(process.env.FT8_DECODE_TIMING || '');
+// How late AFTER a slot boundary we'll still START a transmission, instead of
+// waiting a whole parity cycle (~30s) for the next matching boundary. FT8/FT4
+// receivers decode by DT (offset from the slot start) and tolerate a couple
+// seconds of positive DT, and the ~12.6s (FT8) / ~4.5s (FT4) waveform still
+// fits before the next boundary -- so if a reply is ready within this window
+// of its slot's start, transmit it late in that slot rather than 15-30s later.
+// Clamped per-send so the whole waveform finishes before the next boundary.
+// 0 = only ever start exactly on the boundary (old behaviour). See send().
+const FT8_TX_GRACE_MS = (() => {
+  const raw = process.env.FT8_TX_GRACE_MS;
+  if (raw == null || raw === '') return 2000;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 2000;
+})();
 // Audio offset (Hz) within the FT8 passband used when a transmission
 // requests no more specific frequency at all (see send()'s optional
 // freqHz). 1500Hz — the conventional mid-passband default most FT8
@@ -215,6 +229,7 @@ class Ft8Bridge {
 
     this._active = false; // client has the FT8 panel open
     this._pttActive = false;
+    this._transmitting = false; // true while _transmitNow is keyed up; blocks a late-start overlap
     this._attached = false;
     this._rxChunks = [];
     this._spectrumChunks = [];
@@ -495,6 +510,24 @@ class Ft8Bridge {
       // boundary handler fires it only in the matching parity slot, and
       // _transmitNow writes the already-encoded audio with no encode on the
       // critical path.
+      // Late start: if we're already a little past the boundary of a slot this
+      // reply can go in (current slot's parity matches, or a parity-agnostic
+      // send), transmit NOW with a small positive DT rather than waiting a
+      // whole parity cycle. The window is clamped so the entire waveform still
+      // finishes before the next boundary, and skipped while already keyed.
+      // Timing comes from the slot clock (which owns 'now'), not Date.now().
+      const durationMs = (pcm.length / 2 / this.audioBridge.sampleRate) * 1000;
+      const curSlotStart = this.slotClock.nextSlotStart() - this.slotClock.slotMs;
+      const sinceBoundaryMs = this.slotClock.slotMs - this.slotClock.msUntilNextSlot();
+      const curParityOk = txParity == null || this.slotClock.slotParity(curSlotStart) === txParity;
+      const graceMs = Math.min(FT8_TX_GRACE_MS, Math.max(0, this.slotClock.slotMs - durationMs - this.pttReleaseMarginMs));
+      if (!this._transmitting && curParityOk && sinceBoundaryMs > 0 && sinceBoundaryMs <= graceMs) {
+        if (FT8_DECODE_TIMING) {
+          console.log(`[ft8] late start "${message}" ${Math.round(sinceBoundaryMs)}ms into the slot (DT ~+${(sinceBoundaryMs / 1000).toFixed(1)}s)`);
+        }
+        this._transmitNow({ message, freqHz: actualFreqHz, txParity, pcm, resolve, reject });
+        return;
+      }
       this._pendingTxMessage = { message, freqHz: actualFreqHz, txParity, pcm, resolve, reject };
       // Debug (journal): the slot this reply is actually queued for, so the
       // on-air sequencing can be checked against the operator's WSJT-X.
@@ -674,6 +707,7 @@ class Ft8Bridge {
   }
 
   async _transmitNow({ message, freqHz, pcm, resolve, reject }) {
+    this._transmitting = true;
     const actualFreqHz = freqHz ?? this.txBaseFrequencyHz;
     try {
       this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'sending', message, freqHz: actualFreqHz });
@@ -708,6 +742,7 @@ class Ft8Bridge {
       await this.controlServer.setPttFromServer(false);
 
       this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'sent', message, freqHz: actualFreqHz });
+      this._transmitting = false;
       resolve();
     } catch (err) {
       try {
@@ -718,6 +753,7 @@ class Ft8Bridge {
         // off within its own timeout regardless.
       }
       this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'error', message, error: err.message });
+      this._transmitting = false;
       reject(err);
     }
   }

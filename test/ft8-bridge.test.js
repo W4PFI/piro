@@ -90,6 +90,12 @@ class StubSlotClock extends EventEmitter {
   nextSlotStart() {
     return this._next;
   }
+  msUntilNextSlot() {
+    return this._msUntilNext ?? this.slotMs;
+  }
+  slotParity(slotStartMs) {
+    return ((Math.floor(slotStartMs / this.slotMs) % 2) + 2) % 2;
+  }
   setSlotMs(slotMs) {
     this.setSlotMsCalls.push(slotMs);
     this.slotMs = slotMs;
