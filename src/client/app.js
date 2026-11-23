@@ -621,6 +621,10 @@ let hasRequestedDefaultSpan = false; // auto-request the default span exactly on
 let ft8Active = false;
 let ft8LastBandName = null; // which band FT8's auto-tune last targeted, to detect a *new* band change rather than re-tuning on every frequency update
 let ft8SendInFlight = false;
+// The Even/Odd label of the slot the current transmission went out in,
+// captured when 'sending' fires (reliable at the slot start) so 'sent' can
+// show it too -- Date.now() at 'sent' can be a slot late.
+let ft8TxSlotLabel = '';
 // Auto-send armed (the Auto toggle): while on, a guided-QSO reply is queued
 // the moment the sequence advances, with no double-click. Off by default.
 let ft8AutoSend = false;
@@ -5301,10 +5305,11 @@ link.addEventListener('ft8-tx-status', (event) => {
       ft8StatusEl.textContent = `Scheduled: "${message}" — ${sendAtMs != null ? `${formatUtcTime(sendAtMs)}Z · ${slotParityLabel(sendAtMs)}` : 'next slot'}`;
       break;
     case 'sending':
-      ft8StatusEl.textContent = `Sending: "${message}" · ${slotParityLabel(Date.now())}…`;
+      ft8TxSlotLabel = slotParityLabel(Date.now());
+      ft8StatusEl.textContent = `Sending: "${message}" · ${ft8TxSlotLabel}…`;
       break;
     case 'sent':
-      ft8StatusEl.textContent = `Sent: "${message}"`;
+      ft8StatusEl.textContent = `Sent: "${message}"${ft8TxSlotLabel ? ` · ${ft8TxSlotLabel}` : ''}`;
       break;
     case 'cancelled':
       // A queued (not-yet-on-air) reply was dropped server-side -- the
