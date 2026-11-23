@@ -6092,6 +6092,22 @@ reads `slot HH:MM:SSZ · Even` and the scheduled-send status reads
 queued for. Client only (app.js, via the existing slotParityLabel()).
 Service-worker cache v164.
 
+### FT8/FT4: logging review fixes -- FT4 submode + cqer timing (v166)
+
+Two review fixes to the auto-logging:
+
+- The ADIF record now encodes FT4 as `MFSK` with `<submode>FT4` (WSJT-X's own
+  convention), not a bare `<mode>FT4`, so loggers (Wavelog etc.) classify it
+  correctly. FT8 stays a plain `<mode>FT8`. (server/wsjtx-logger.js)
+- A **cqer** QSO (we called CQ) is no longer logged the instant the sequence
+  reaches `complete` -- our RR73 is the confirming transmission, so logging is
+  deferred to that RR73's `sent` (carried on `ft8FinalResetPending.logReq`).
+  If the operator Stops the RR73, nothing is logged. A **caller** QSO is still
+  logged on `complete`, since the partner's RR73 we already received confirms
+  it. (app.js)
+
+Server + client. Service-worker cache v166.
+
 ### FT8/FT4: auto-log a completed guided QSO (WSJT-X UDP) (v165)
 
 When a guided QSO reaches `step === 'complete'`, the client sends a `logQso`

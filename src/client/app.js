@@ -5111,7 +5111,11 @@ link.addEventListener('ft8-decodes', (event) => {
   // frequency from its own dial state; it's a no-op if logging isn't
   // configured. Deduped by partnerCall|startedAt so it fires once, not every
   // slot the QSO sits 'complete'.
-  if (activeQso && activeQso.step === 'complete' && activeQso.partnerCall) {
+  // A cqer QSO (we called CQ) is only confirmed once OUR RR73 is actually on
+  // the air, so it is NOT logged here on 'complete' -- that's deferred to the
+  // final RR73's 'sent' (see ft8FinalResetPending). A caller QSO was confirmed
+  // by the partner's RR73 we already received, so it logs here.
+  if (activeQso && activeQso.step === 'complete' && activeQso.partnerCall && activeQso.role !== 'cqer') {
     const key = `${activeQso.partnerCall}|${activeQso.startedAt}`;
     if (key !== ft8LoggedQsoKey) {
       ft8LoggedQsoKey = key;
@@ -5257,6 +5261,16 @@ link.addEventListener('ft8-tx-status', (event) => {
   // the pending flag and leave the QSO + composer so Send can retry it.
   if (ft8FinalResetPending != null && message === ft8FinalResetPending.message) {
     if (status === 'sent') {
+      // The cqer final (RR73) is now on the air -- NOW the contact is
+      // confirmed, so log it (deferred from the 'complete' step above).
+      if (ft8FinalResetPending.logReq) {
+        const lr = ft8FinalResetPending.logReq;
+        const logKey = `${lr.call}|${lr.startedAt}`;
+        if (logKey !== ft8LoggedQsoKey) {
+          ft8LoggedQsoKey = logKey;
+          link.request('logQso', lr).catch((err) => showError(`Couldn't log the QSO: ${err.message}`));
+        }
+      }
       // Only wrap up if the SAME QSO is still active -- if the operator
       // engaged a new station while the final was in flight, leave that new
       // QSO and its staged reply alone.
@@ -5405,7 +5419,25 @@ function sendFt8Message() {
   // never transmitted, so the QSO and composer are left intact to retry
   // rather than starting a fresh CQ. See the ft8-tx-status handler.
   const finalQso = ft8Qso.getQso();
-  ft8FinalResetPending = finalQso?.step === 'complete' ? { message: text, partnerCall: finalQso.partnerCall } : null;
+  // For a cqer QSO, OUR RR73 here is the confirming transmission, so carry a
+  // deferred log request that the 'sent' handler fires once it's on the air
+  // (a caller QSO was already logged on 'complete').
+  ft8FinalResetPending = finalQso?.step === 'complete'
+    ? {
+        message: text,
+        partnerCall: finalQso.partnerCall,
+        logReq: finalQso.role === 'cqer'
+          ? {
+              call: finalQso.partnerCall,
+              grid: finalQso.grid || undefined,
+              mode: ft8Variant,
+              rstSent: finalQso.reportSent || undefined,
+              rstRcvd: finalQso.reportRcvd || undefined,
+              startedAt: finalQso.startedAt,
+            }
+          : null,
+      }
+    : null;
 }
 
 // While a transmission is scheduled the Send button becomes a red Stop that

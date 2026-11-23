@@ -92,7 +92,10 @@ class WsjtxLogger {
       '<EOH>',
       adif('call', String(qso.call).toUpperCase()),
       adif('gridsquare', qso.grid ? String(qso.grid).toUpperCase() : ''),
-      adif('mode', (qso.mode || 'FT8').toUpperCase()),
+      // WSJT-X logs FT4 as an ADIF submode of MFSK, not a top-level mode;
+      // FT8 stays a plain mode. Keeps loggers (Wavelog etc.) classifying it right.
+      adif('mode', (qso.mode || 'FT8').toUpperCase() === 'FT4' ? 'MFSK' : (qso.mode || 'FT8').toUpperCase()),
+      adif('submode', (qso.mode || '').toUpperCase() === 'FT4' ? 'FT4' : ''),
       adif('rst_sent', qso.rstSent),
       adif('rst_rcvd', qso.rstRcvd),
       adif('qso_date', utcDate(started)),
