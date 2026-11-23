@@ -749,6 +749,20 @@ class Ft8Bridge {
       // The FT8 button turned DATA mode on; make sure it still is before
       // keying (a quick read when it is; see civ/data-mode-guard.js).
       await ensureDataMode(this.civ, true, { settleMs: this.dataSettleMs });
+      // The late-start fit was checked in send() BEFORE this DATA-mode settle
+      // (and any slow CI-V); recheck against the clock now so a transmission
+      // delayed by radio prep can't run past the next boundary into the
+      // peer's slot. If the waveform + PTT-release margin no longer fit, skip
+      // this transmission (the reply is lost for this slot rather than QRMing
+      // the peer) instead of keying up.
+      const msLeftNow = this.slotClock.msUntilNextSlot();
+      const needMs = (outPcm.length / 2 / this.audioBridge.sampleRate) * 1000 + this.pttReleaseMarginMs;
+      if (needMs > msLeftNow) {
+        this._transmitting = false;
+        this.controlServer.broadcastJsonEvent(EVENT.FT8_TX_STATUS, { status: 'cancelled', message, reason: 'too late in the slot after radio preparation' });
+        resolve();
+        return;
+      }
       await this.controlServer.setPttFromServer(true);
       this.audioBridge.writeGenerated(outPcm);
 
