@@ -153,6 +153,23 @@ const APP_VERSION = readAppVersion();
 const STATION_CALLSIGN = process.env.STATION_CALLSIGN || null;
 const STATION_GRID = process.env.STATION_GRID || null;
 
+// FT8/FT4 Auto mode: when Auto is on and you call CQ, how many times the
+// server re-sends your CQ automatically if no one answers (the parity-correct
+// CQ goes out every second slot, like WSJT-X). Your own first CQ isn't
+// counted; after this many unanswered auto-CQs the server stops and leaves
+// Auto armed for your next call. 0 disables auto-repeat (watch only, as
+// before). Default 5. See src/server/ft8-auto-sequencer.js.
+const FT8_AUTO_CQ_REPEATS = (() => {
+  const raw = process.env.FT8_AUTO_CQ_REPEATS;
+  if (raw == null || raw.trim() === '') return 5;
+  const n = parseInt(raw, 10);
+  if (!Number.isInteger(n) || n < 0) {
+    console.warn(`FT8_AUTO_CQ_REPEATS="${raw}" is not a non-negative integer; using 5.`);
+    return 5;
+  }
+  return n;
+})();
+
 // Where the source of this running copy is. PiRO is AGPL-3.0-only (see
 // README.md's "Licence" section, and models/deepcw/NOTICE.md for why), so
 // everyone who uses it over the network may have its source. The page's
@@ -655,7 +672,7 @@ async function main() {
     // no native "FT8" mode; operators run it on USB — see
     // docs/ui-notes.md), so it stays idle until the client's FT8 panel
     // explicitly arms it via SET_FT8_ACTIVE.
-    ft8Bridge = new Ft8Bridge({ civ, controlServer, audioBridge });
+    ft8Bridge = new Ft8Bridge({ civ, controlServer, audioBridge, autoCqRepeats: FT8_AUTO_CQ_REPEATS });
     ft8Bridge.start();
     console.log('FT8 bridge ready (RX decoding activates when a client opens the FT8 panel).');
 

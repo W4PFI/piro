@@ -8,6 +8,13 @@ const https = require('https');
 const { EventEmitter } = require('events');
 const { WebSocketServer } = require('ws');
 const { REQUEST, EVENT, BINARY_TYPE, makeResult, makeError, makeEvent } = require('./protocol');
+
+// How long the server-side FT8 Auto sequencer may keep running after the last
+// browser disconnects, before the server disarms it so it's never left
+// transmitting unattended. A grace (not instant) so a page reload or a brief
+// remote-link (e.g. Tailscale) drop that reconnects doesn't interrupt an
+// in-flight Auto QSO -- the returning page re-adopts it from the snapshot.
+const AUTO_DISARM_GRACE_MS = 45000;
 const { createStaticHandler } = require('./static-server');
 const { checkLogin, isLoopback } = require('./login-proxy');
 
@@ -335,6 +342,13 @@ class ControlServer extends EventEmitter {
       // src/audio/psk-reporter.js (which itself still no-ops unless
       // stationCallsign above is also configured).
       pskSpotEnabled: true,
+      // The server-side FT8 Auto sequencer's current armed state, or null when
+      // disarmed: { armed:true, partnerCall, role, step, cqWatch }. Kept in
+      // sync by Ft8Bridge (#_syncAutoState) via ControlServer#setFt8AutoState;
+      // rides the CONNECTED snapshot so a reloaded/reconnected browser
+      // re-adopts an in-flight Auto QSO (the toggle shows armed and can
+      // disarm it). See EVENT.FT8_AUTO_STATE.
+      ft8Auto: null,
       // Which protocol the FT8 mode button is currently in — 'FT8' or
       // 'FT4' (see REQUEST.SET_FT8_VARIANT / src/audio/ft8-bridge.js).
       // Defaults to 'FT8', matching Ft8Bridge's own default and every
@@ -562,6 +576,13 @@ class ControlServer extends EventEmitter {
   _wireWsConnections() {
     this.wss.on('connection', (ws, req) => {
       this.clients.add(ws);
+      // A browser is back: cancel any pending FT8 Auto grace-disarm so a reload
+      // or brief link drop doesn't stop an in-flight Auto QSO; the page
+      // re-adopts it from the CONNECTED snapshot below.
+      if (this._autoDisarmTimer) {
+        clearTimeout(this._autoDisarmTimer);
+        this._autoDisarmTimer = null;
+      }
       if (req?.loginUser) {
         ws.loginUser = req.loginUser;
         console.log(`[ws] ${req.loginUser} connected`);
@@ -732,6 +753,29 @@ class ControlServer extends EventEmitter {
     this.emit('mode-changed');
   }
 
+  /**
+   * Reflects the server-side FT8 Auto sequencer's armed state (Ft8Bridge owns
+   * the sequencer and calls this): stores it for the CONNECTED snapshot and
+   * broadcasts EVENT.FT8_AUTO_STATE so every open browser's Auto toggle tracks
+   * it live. `auto` is { armed:true, partnerCall, role, step, cqWatch } or
+   * { armed:false }.
+   */
+  setFt8AutoState(auto) {
+    // Keep an explicit operator-off in the snapshot too (not just the live
+    // broadcast): a browser that missed the broadcast while disconnected must,
+    // on reconnect, still learn Auto was turned off and clear its toggle --
+    // otherwise its client-side auto-send would override the operator's stop.
+    // A completion self-disarm stays null (Auto remains armed between exchanges).
+    this.state.ft8Auto = auto && auto.armed
+      ? auto
+      : (auto && auto.operatorOff ? { armed: false, operatorOff: true } : null);
+    // Broadcast the live payload (not just state.ft8Auto) so a disarm carries
+    // its `operatorOff` flag to the browsers; the CONNECTED snapshot keeps the
+    // plain armed/null state, which is all a fresh reconnect needs.
+    this._broadcast(makeEvent(EVENT.FT8_AUTO_STATE,
+      auto && auto.armed ? auto : { armed: false, operatorOff: !!(auto && auto.operatorOff) }));
+  }
+
   _setJttyActive(active) {
     this.state.jttyActive = active;
     // Handled by JttyDecoderBridge (internal-only event, same pattern as 'ft8-active').
@@ -823,6 +867,21 @@ class ControlServer extends EventEmitter {
     if (this.state.wsprActive) {
       this._setWsprActive(false);
       this._broadcastAppModes();
+    }
+    // FT8 Auto transmits on its own (it sequences a guided QSO, and cq-watch
+    // answers callers) -- like VARA/WSPR above it must not run unattended. But
+    // allow a short grace first, so a reload or brief link drop that reconnects
+    // keeps an in-flight QSO going (the returning page re-adopts it from the
+    // CONNECTED snapshot). If no browser is back by then, disarm.
+    if (this.state.ft8Auto && this.state.ft8Auto.armed && !this._autoDisarmTimer) {
+      this._autoDisarmTimer = setTimeout(() => {
+        this._autoDisarmTimer = null;
+        if (this.clients.size === 0 && this.state.ft8Auto && this.state.ft8Auto.armed) {
+          console.warn(`[ws] no browser for ${AUTO_DISARM_GRACE_MS} ms; disarming FT8 Auto`);
+          this.emit('ft8-disarm-auto');
+        }
+      }, AUTO_DISARM_GRACE_MS);
+      this._autoDisarmTimer.unref?.();
     }
   }
 
@@ -1273,6 +1332,20 @@ class ControlServer extends EventEmitter {
           if (msg.wpm !== undefined && (typeof msg.wpm !== 'number' || !Number.isFinite(msg.wpm))) throw new Error('"wpm" must be a number if provided');
           // Like SEND_TTY, this only starts it; progress arrives as EVENT.CW_TX_STATUS (see cw-tx-bridge.js).
           this.emit('cw-send', { text: msg.text, wpm: msg.wpm });
+          ws.send(makeResult(id, { accepted: true }));
+          break;
+        }
+        case REQUEST.ARM_AUTO_QSO: {
+          this.emit('ft8-arm-auto', { partnerCall: msg.partnerCall, role: msg.role, step: msg.step, freqHz: msg.freqHz, cqWatch: msg.cqWatch, cqText: msg.cqText });
+          ws.send(makeResult(id, { accepted: true }));
+          break;
+        }
+        case REQUEST.DISARM_AUTO_QSO: {
+          // Operator toggled Auto off (or left FT8 / switched variant): an
+          // explicit disarm that must clear the Auto toggle on EVERY browser,
+          // unlike a self-disarm on QSO completion. The grace-disarm above
+          // omits the flag (no browser is connected to hear it anyway).
+          this.emit('ft8-disarm-auto', { operatorOff: true });
           ws.send(makeResult(id, { accepted: true }));
           break;
         }

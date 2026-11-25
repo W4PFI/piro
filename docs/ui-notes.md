@@ -6092,6 +6092,63 @@ reads `slot HH:MM:SSZ · Even` and the scheduled-send status reads
 queued for. Client only (app.js, via the existing slotParityLabel()).
 Service-worker cache v164.
 
+### FT8/FT4: Auto mode (hands-free guided QSOs, server-sequenced) (v166)
+
+An **Auto** toggle beside Send that runs a guided QSO to completion without
+clicking. Off by default, amber when armed; it fires only on a real guided
+advance (never an arbitrary decode), reuses the reply-slot parity lock, and
+disarms when you leave FT8. In Auto the guided status is a description rather
+than an instruction ("sending your report, then watching for their
+acknowledgement"), and the live outgoing reply is mirrored onto the composer so
+the send line shows what is actually going out.
+
+**Server-side sequencing.** Once a QSO is engaged with Auto on (or you call CQ)
+the client hands it to the server (`armAutoQso`) and `Ft8AutoSequencer`
+(server/ft8-auto-sequencer.js) generates the R-report / RR73 / 73 right after
+each decode -- no decode -> browser -> server round-trip, so replies stay
+reliable over a remote/Tailscale link. It covers both roles: answering a CQ,
+and a `cq-watch` mode for whoever answers your CQ (the strongest in a pileup).
+
+**Report-form answers.** A station that answers with a signal report instead of
+a grid (common when grid/TX1 is off) is recognised too -- both server-side and
+when you click the row manually -- so you reply with your R-report, and it never
+calls CQ over a station answering you. The browser and server select the same
+caller.
+
+**CQ auto-repeat.** Call CQ with Auto on and, if no one answers, the server
+re-sends your CQ in the correct slot up to `FT8_AUTO_CQ_REPEATS` times
+(default **5**; `0` = watch only), with the attempt on the status line (e.g.
+`. 2/5 .`). Quiet (empty) slots drive the repeats, and the budget is spent per
+CQ that actually airs.
+
+**Robustness.** The armed state is server-authoritative (rides the CONNECTED
+snapshot, broadcast live via `EVENT.FT8_AUTO_STATE`): reload the page or briefly
+drop the link and the in-flight QSO is re-adopted; turning Auto off propagates to
+every browser; and if no browser reconnects the server grace-disarms (45 s) so
+Auto is never left transmitting unattended. Deactivating FT8 (a LAN client takes
+the radio) disarms and cancels any queued reply. A manual guided QSO chimes on
+each exchange, not just first contact.
+
+New server/ft8-auto-sequencer.js, wired in audio/ft8-bridge.js, server/protocol.js
+and server/ws-server.js; client in index.html, app.js, styles.css and ft8-qso.js.
+Tests in test/ft8-auto-sequencer.test.js plus test/ft8-bridge.test.js and
+test/ft8-qso.test.mjs. Service-worker cache v166.
+
+### FT8/FT4: reply timing -- early decode and a late-start grace (v166)
+
+Two settings so a guided reply makes the *next* slot instead of a full parity
+cycle later (which matters over a remote link). `FT8_EARLY_DECODE_MS` (default
+2000) decodes that many ms before the slot boundary -- the signal has ended by
+then -- so the reply is worked out and queued before the boundary rather than
+at it. `FT8_TX_GRACE_MS` (default 2000) lets a reply that is ready just after
+the boundary still start (a small positive DT receivers tolerate), clamped
+per-send so the whole waveform still finishes before the next boundary; after
+the DATA-mode settle PiRO rechecks there is enough slot left before taking that
+late start. `FT8_DECODE_TIMING=1` logs decode timing to the journal for tuning.
+Switching FT4 <-> FT8 cancels a pending early decode so the new grid is decoded
+cleanly. Server only (`audio/ft8-bridge.js`), no build change, so it ships in
+v166.
+
 ### FT8/FT4: don't let a double-click send behind a live transmission (v165)
 
 Review fix (P2). While a reply was scheduled or on the air (the Send button

@@ -580,6 +580,7 @@ const wsprStatusEl = document.getElementById('wspr-status');
 const ft8PanelLabelEl = document.getElementById('ft8-panel-label');
 const ft8ComposerInput = document.getElementById('ft8-composer-input');
 const ft8SendBtn = document.getElementById('ft8-send-btn');
+const ft8AutoBtn = document.getElementById('ft8-auto-btn');
 const ft8StatusEl = document.getElementById('ft8-status');
 const freeDvReportSectionEl = document.getElementById('freedv-report-section');
 const freeDvMessageInput = document.getElementById('freedv-message-input');
@@ -624,6 +625,13 @@ let ft8SendInFlight = false;
 // captured when 'sending' fires (reliable at the slot start) so 'sent' can
 // show it too -- Date.now() at 'sent' can be a slot late.
 let ft8TxSlotLabel = '';
+// Auto-send armed (the Auto toggle): while on, a guided-QSO reply is queued
+// the moment the sequence advances, with no double-click. Off by default.
+let ft8AutoSend = false;
+// True while the SERVER is auto-sequencing the current QSO (armed via
+// armAutoQso): the decode-triggered replies are generated server-side with no
+// browser round-trip, so the client must not also auto-send them.
+let ft8ServerSeq = false;
 let ft8TrimmedTx = null; // exact outgoing text whose grid we trimmed on the last local send (for the status-line flag)
 // Chimes when an FT8/FT4 station calls us (see call-alert.js).
 const callAlert = new CallAlert();
@@ -1118,6 +1126,10 @@ link.addEventListener('connected', (event) => {
     ft8Variant = data.ft8Variant;
     updateFt8VariantUi();
   }
+  // Re-adopt a server-side Auto QSO that's still running (e.g. this page just
+  // reloaded while Auto was armed): show the toggle armed and let the page
+  // control it again. See reflectServerAuto() and EVENT.FT8_AUTO_STATE.
+  reflectServerAuto(data.ft8Auto);
   if (data.cwDecoderVariant) {
     cwDecoderVariant = data.cwDecoderVariant;
     updateCwVariantUi();
@@ -4572,6 +4584,7 @@ function exitFt8Mode({ local = false, keepDataMode = false } = {}) {
 // is no longer in front of us (see tuneFt8ToBand).
 function resetFt8QsoToCq() {
   clearPendingRowSelection();
+  disarmServerAuto();
   ft8TableBodyEl.innerHTML = '';
   ft8Qso.reset();
   ft8ReplySlotMs = null;
@@ -4625,6 +4638,7 @@ function toggleFt8Variant() {
   ft8Qso.reset();
   ft8ReplySlotMs = null;
   ft8ParityLockPartner = null;
+  disarmServerAuto();
   hideQsoStatus();
 
   if (ft8LastBandName && ft8FrequencyTable()[ft8LastBandName] != null) {
@@ -5020,6 +5034,7 @@ function setFt8UiVisible(active) {
     // decoding stops, and would otherwise silently resume "mid-QSO" the
     // next time FT8 mode is entered.
     clearPendingRowSelection();
+    setFt8AutoSend(false);
     ft8Qso.reset();
     callAlert.reset();
     ft8ReplySlotMs = null;
@@ -5049,10 +5064,22 @@ function hideQsoStatus() {
  * (see ft8-qso.js's module doc comment on why this is guidance, not
  * automation).
  */
+// Auto mode does the sending, so the guided status shouldn't tell the
+// operator to “send” anything. Reword the imperative forms into a
+// description of what the auto-sequence is doing/waiting for. Manual mode
+// keeps the original instructions.
+function autoPhraseStatus(text) {
+  return text
+    .replace(/ — send (.+?), then watch for /, ' — sending $1, then watching for ')
+    .replace(/ — send (RR73|73) to complete the QSO\./, ' — sending $1 to complete the QSO.');
+}
+
 function applyFt8Suggestion(suggestion) {
   if (!suggestion) return;
   ft8ComposerInput.value = suggestion.txText;
-  if (suggestion.statusText) showQsoStatus(suggestion.statusText);
+  if (suggestion.statusText) {
+    showQsoStatus(ft8AutoSend ? autoPhraseStatus(suggestion.statusText) : suggestion.statusText);
+  }
   // Guided suggestions always carry their own tracked frequency in
   // practice (the decoded signal's own freq — see ft8-qso.js); the
   // fallback to the session's persisted default here is just defensive,
@@ -5115,10 +5142,51 @@ link.addEventListener('ft8-decodes', (event) => {
   const qsoAdvanced = ft8Qso.ingestDecodes(sorted);
   applyFt8Suggestion(qsoAdvanced);
   const activeQso = ft8Qso.getQso();
+  // Auto-send: if armed and the partner's reply advanced the guided sequence
+  // this slot, queue OUR staged reply immediately -- no double-click -- so it
+  // can make the next slot (pairs with early decode). Lock the reply-slot
+  // parity to the slot we heard them in, exactly as a manual guided send
+  // does. Only fires on a real guided advance, never arbitrary decodes, and
+  // not while a send is already in flight.
+  if (ft8AutoSend && !ft8ServerSeq && qsoAdvanced && activeQso && !ft8SendInFlight) {
+    // Drop any pending single-click (still on its 250ms timer) first, so the
+    // flush inside sendFt8Message() can't replace this staged guided reply
+    // (and its target) with a clicked row's contents -- the automatic reply
+    // must stay tied to qsoAdvanced.
+    clearPendingRowSelection();
+    const partner = activeQso.partnerCall;
+    if (partner && partner !== ft8ParityLockPartner) {
+      if (slotStartMs != null) ft8ReplySlotMs = slotStartMs;
+      ft8ParityLockPartner = partner;
+    }
+    sendFt8Message();
+    // Hand the rest of this QSO to the server (no-op if there's nothing to
+    // arm). Covers enabling Auto while seeking: the first reply is sent here,
+    // browser-side, but every later reply should be server-sequenced -- and a
+    // reload must be able to restore the exchange.
+    armServerAuto();
+  } else if (ft8ServerSeq && qsoAdvanced && activeQso && activeQso.step === 'complete') {
+    // Server-sequenced QSO just reached its final step: the SERVER (not this
+    // browser) transmits the closing 73/RR73, so sendFt8Message() never runs
+    // here and never records the pending completion. The server's final is
+    // byte-for-byte the reply our own sequencer just staged (same parser +
+    // advance rules -- see server/ft8-auto-sequencer.js), so register it with
+    // the existing completion bookkeeping WITHOUT transmitting it again: the
+    // ft8-tx-status 'sent' handler (matched on message text) then tears the
+    // completed QSO down and restores the default CQ when that final goes out.
+    // Without this the client stays stuck on the completed QSO with the final
+    // reply left in the composer.
+    ft8FinalResetPending = { message: qsoAdvanced.txText, partnerCall: activeQso.partnerCall };
+  }
 
   // Someone calling us: a chime (once per caller; see call-alert.js), and their rows marked.
   const callers = callAlert.check(sorted, slotStartMs, stationCallsign);
-  if (callers.length) playCallChime();
+  // Chime when someone newly calls us, OR (manual operation) when the partner's
+  // reply advances our guided QSO -- their report/ack means it's your turn, so
+  // beep each exchange, not just on first contact (the call-alert chime dedupes
+  // per caller within a window, so it wouldn't re-fire for the ack). Auto is
+  // hands-free, so the per-exchange beep is suppressed there.
+  if (callers.length || (qsoAdvanced && !ft8AutoSend)) playCallChime();
 
   // When the partner's reply advances the sequence this slot, mark that
   // decode as the row to act on and bring it into view, so the operator
@@ -5165,7 +5233,17 @@ link.addEventListener('ft8-decodes', (event) => {
         ft8RowClickTimer = null;
         const sel = ft8PendingRowSel;
         ft8PendingRowSel = null;
-        if (sel) engageFt8Row(sel.msg, sel.slotStartMs);
+        if (sel) {
+          // Engage the guided QSO this click starts (answering a CQ /
+          // reply-to-our-CQ). If Auto is armed and a real reply was staged,
+          // send it straight away -- the first transmission is otherwise the
+          // one case auto-send on qsoAdvanced can't cover (a click engages
+          // via engage(), not ingestDecodes()).
+          const staged = engageFt8Row(sel.msg, sel.slotStartMs);
+          // Don't auto-send over a transmission already on air (same guard as
+          // the double-click handler) -- it would queue a reply with no Stop.
+          if (staged && ft8AutoSend && !ft8SendInFlight) { sendFt8Message(); armServerAuto(); }
+        }
       }, FT8_DBLCLICK_MS);
     });
     row.addEventListener('dblclick', () => {
@@ -5208,7 +5286,7 @@ link.addEventListener('ft8-decodes', (event) => {
       // Any other row: only auto-send when engaging produced a real guided
       // reply (a CQ answer / reply-to-our-CQ). If engage() had no response it
       // just stages the decode for the operator to confirm with Send.
-      if (engageFt8Row(msg, slotStartMs)) sendFt8Message();
+      if (engageFt8Row(msg, slotStartMs)) { sendFt8Message(); armServerAuto(); }
     });
     ft8TableBodyEl.appendChild(row);
   }
@@ -5218,13 +5296,24 @@ link.addEventListener('ft8-decodes', (event) => {
 });
 
 link.addEventListener('ft8-tx-status', (event) => {
-  const { status, message, error, sendAtMs } = event.detail || {};
+  const { status, message, error, sendAtMs, cqAttempt, cqTotal } = event.detail || {};
+  // Auto-CQ repeat tags each transmission with its attempt number/total; show
+  // it on the status line, e.g. `Sent: "CQ ..." \u00b7 2/5 \u00b7 Even`.
+  const cqNote = (cqAttempt != null && cqTotal != null) ? ` \u00b7 ${cqAttempt}/${cqTotal}` : '';
   ft8StatusEl.hidden = false;
   ft8SendInFlight = status === 'scheduled' || status === 'sending';
   // 'scheduled' = queued but not yet keyed, so it can still be pulled back
   // -> offer Stop. 'sending' = on the air, too late -> locked. Anything else
   // (sent / error / cancelled / idle) -> back to a normal Send.
   setFt8SendMode(status === 'scheduled' ? 'cancel' : status === 'sending' ? 'busy' : 'send');
+  // Auto (server-driven): the outgoing reply is generated server-side, so the
+  // composer can sit showing a stale CQ while the server transmits. Mirror the
+  // live outgoing message onto the send line so it shows what's actually going
+  // out. Only while the server has the QSO, and only for the in-flight message
+  // (scheduled/sending) -- a completed QSO's reset to CQ still runs below.
+  if (ft8ServerSeq && (status === 'scheduled' || status === 'sending') && message) {
+    ft8ComposerInput.value = message;
+  }
   // Flag a grid that was trimmed to 4 chars for this send (see
   // sendFt8Message) on the live status line, so the operator sees the
   // real outgoing message rather than their 6-char input. Matched on the
@@ -5238,14 +5327,14 @@ link.addEventListener('ft8-tx-status', (event) => {
   ft8StatusEl.classList.toggle('ft8-status--tx', status === 'sending');
   switch (status) {
     case 'scheduled':
-      ft8StatusEl.textContent = `Scheduled: "${message}" — ${sendAtMs != null ? `${formatUtcTime(sendAtMs)}Z · ${slotParityLabel(sendAtMs)}` : 'next slot'}`;
+      ft8StatusEl.textContent = `Scheduled: "${message}"${cqNote} — ${sendAtMs != null ? `${formatUtcTime(sendAtMs)}Z · ${slotParityLabel(sendAtMs)}` : 'next slot'}`;
       break;
     case 'sending':
       ft8TxSlotLabel = slotParityLabel(Date.now());
-      ft8StatusEl.textContent = `Sending: "${message}" · ${ft8TxSlotLabel}…`;
+      ft8StatusEl.textContent = `Sending: "${message}"${cqNote} · ${ft8TxSlotLabel}…`;
       break;
     case 'sent':
-      ft8StatusEl.textContent = `Sent: "${message}"${ft8TxSlotLabel ? ` · ${ft8TxSlotLabel}` : ''}`;
+      ft8StatusEl.textContent = `Sent: "${message}"${cqNote}${ft8TxSlotLabel ? ` · ${ft8TxSlotLabel}` : ''}`;
       break;
     case 'cancelled':
       // A queued (not-yet-on-air) reply was dropped server-side -- the
@@ -5403,6 +5492,7 @@ function sendFt8Message() {
     // and drop any QSO parity lock (this starts a new sequence).
     ft8ReplySlotMs = null;
     ft8ParityLockPartner = null;
+    if (ft8AutoSend) armServerCqWatch(text);
   }
 
   // currentQsoFreqHz targets this transmission at the frequency the
@@ -5446,6 +5536,90 @@ function setFt8SendMode(mode) {
   ft8SendBtn.disabled = mode === 'busy';
   ft8SendBtn.classList.toggle('ft8-composer__send--cancel', cancel);
 }
+// The Auto toggle arms/disarms auto-send; armed is shown amber ("hot").
+// Hand an in-progress QSO to the server so its decode-triggered replies fire
+// the instant a slot decodes, with no browser round-trip (critical over a
+// remote/Tailscale link). armServerAuto covers both roles; armServerCqWatch is
+// for just-sent CQs where the answerer isn't known yet.
+function armServerAuto() {
+  const qso = ft8Qso.getQso();
+  if (!ft8AutoSend || !qso || qso.step === 'complete') return;
+  ft8ServerSeq = true;
+  link.request('armAutoQso', { partnerCall: qso.partnerCall, role: qso.role, step: qso.step, freqHz: currentQsoFreqHz })
+    .catch(() => { ft8ServerSeq = false; });
+}
+function armServerCqWatch(cqText) {
+  ft8ServerSeq = true;
+  // Pass the CQ text so the server can re-send it automatically if no one
+  // answers (up to FT8_AUTO_CQ_REPEATS times) -- see ft8-auto-sequencer.js.
+  link.request('armAutoQso', { cqWatch: true, freqHz: currentQsoFreqHz, cqText })
+    .catch(() => { ft8ServerSeq = false; });
+}
+function disarmServerAuto() {
+  if (!ft8ServerSeq) return;
+  ft8ServerSeq = false;
+  link.request('disarmAutoQso').catch(() => {});
+}
+
+// Mirror the server-side Auto sequencer's state (from the CONNECTED snapshot
+// on reconnect, and live FT8_AUTO_STATE broadcasts). The server owns the
+// time-critical sequencing, so after a reload or a brief link drop this
+// re-adopts an in-flight Auto QSO -- the toggle shows armed again and the page
+// can disarm it (toggling off, or leaving FT8, now reaches the server) -- and
+// it releases the lock when the server disarms (QSO complete, or grace-disarm
+// with no browser). Unlike setFt8AutoSend() it never kick-starts a reply.
+function reflectServerAuto(auto) {
+  const armed = !!(auto && auto.armed);
+  ft8ServerSeq = armed;
+  if (armed) {
+    ft8AutoSend = true;
+    // Restore the QSO's targeting context too (the guided panel isn't
+    // repopulated on a reload), so if the operator turns Auto off and presses
+    // Send to repeat the shown reply it goes to the partner's frequency and
+    // listening-slot parity, not the session default.
+    if (auto.freqHz != null) { currentQsoFreqHz = auto.freqHz; scopeDisplay.setQsoFreq(currentQsoFreqHz); }
+    if (auto.replySlotMs != null) ft8ReplySlotMs = auto.replySlotMs;
+    if (auto.partnerCall) ft8ParityLockPartner = auto.partnerCall;
+  }
+  // An explicit operator disarm (Auto toggled off, or FT8/variant left) on ANY
+  // browser must turn automation off on EVERY browser -- otherwise a page that
+  // was only tracking the QSO keeps ft8AutoSend=true and its client-side
+  // auto-send guard would transmit a reply on the next advancing decode despite
+  // Auto being off. Normal server-side QSO completion omits operatorOff, so
+  // Auto stays armed between exchanges.
+  else if (auto && auto.operatorOff) ft8AutoSend = false;
+  ft8AutoBtn.classList.toggle('is-armed', ft8AutoSend);
+  ft8AutoBtn.setAttribute('aria-pressed', ft8AutoSend ? 'true' : 'false');
+}
+
+function setFt8AutoSend(on) {
+  ft8AutoSend = on;
+  ft8AutoBtn.classList.toggle('is-armed', on);
+  ft8AutoBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  if (!on) {
+    disarmServerAuto();
+    return;
+  }
+  // Arming mid-QSO: for the reply steps (awaiting-final / awaiting-ack) the
+  // sequencer already staged our reply while Auto was off and won't re-offer
+  // it, so send it now -- UNLESS that reply is already on the air (the operator
+  // sent it by hand just before arming). Kick-starting another send then would
+  // queue a duplicate for the next matching slot, and because queued sends
+  // start before the preceding receive slot finishes decoding, that duplicate
+  // would occupy the slot meant for the partner's acknowledgement and push our
+  // 73/RR73 back a full cycle. So just hand the exchange to the server, which
+  // picks up from the in-flight reply on the next decode.
+  const qso = ft8Qso.getQso();
+  if (qso && qso.step !== 'complete') {
+    if ((qso.step === 'awaiting-final' || qso.step === 'awaiting-ack') && !ft8SendInFlight) { clearPendingRowSelection(); sendFt8Message(); }
+    armServerAuto();
+  }
+}
+ft8AutoBtn.addEventListener('click', () => setFt8AutoSend(!ft8AutoSend));
+// The server pushes its Auto armed-state changes (another browser toggling it,
+// the sequencer completing a QSO, or a grace-disarm) so every page stays in
+// sync -- see EVENT.FT8_AUTO_STATE.
+link.addEventListener('ft8-auto-state', (event) => reflectServerAuto(event.detail));
 ft8SendBtn.addEventListener('click', handleFt8SendButton);
 ft8ComposerInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') handleFt8SendButton();

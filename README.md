@@ -14,7 +14,7 @@ Hamlib, no separate audio server and no extra apps.
 Written by VK3TR. Licensed AGPL-3.0-only (see
 [Licence](#licence)).
 
-**Current build: v165.** This is the version the app shows next to its title.
+**Current build: v166.** This is the version the app shows next to its title.
 It is the `CACHE_NAME` number in `src/client/sw.js`, which goes up with every
 change to the web app.
 
@@ -1619,8 +1619,19 @@ band.
   answer. PiRO then fills in each reply the exchange needs (grid, report,
   acknowledgement, RR73 or 73) as the other station's messages are
   decoded. The QSO's lines are highlighted. Replies go out on the other
-  station's frequency. PiRO only suggests: you press Send for every
-  message. It never transmits by itself.
+  station's frequency. By default PiRO only suggests -- you press Send for
+  each message -- unless **Auto** is on (below).
+- **Auto.** The **Auto** button beside Send (amber when armed) transmits the
+  guided-QSO replies for you, so you don't press Send for each one. You still
+  start each QSO -- tap a station, or call CQ -- and Auto then runs the
+  exchange to completion, timing each reply to its slot; the sequencing is
+  done on the server, so it stays reliable even over a remote link. Call CQ
+  with Auto on and PiRO answers whoever comes back (the strongest in a
+  pileup) and re-sends your CQ up to `FT8_AUTO_CQ_REPEATS` times (default 5;
+  `0` to only watch) if no one answers -- the status line shows the attempt,
+  e.g. `2/5`. Reload the page or briefly lose the link and the QSO is picked
+  back up; if no browser returns, PiRO disarms Auto so it never transmits
+  unattended. Click Auto again for manual Send.
 - **Transmit frequency.** Tap the spectrum to choose it (to the nearest
   50 Hz). It starts at 1500 Hz and stays where you put it until you
   reload the page.
@@ -2065,6 +2076,9 @@ All settings are environment variables. For the systemd service they go in
 | `AUDIO_CHANNELS` | `1` | Number of audio channels. |
 | `TX_AUDIO_ECHO` | on | In SSB, AM, FM and FreeDV, a browser's microphone audio while transmitting is also played in every other browser, so people sharing the radio hear each other. `off` turns it off. |
 | `AUDIO_OPUS_BITRATE` | `24000` | Opus bit rate for compressed audio, in bits per second (6000 to 128000). See [Compressed audio for remote use](#compressed-audio-for-remote-use). `AUDIO_CODEC` is no longer used: each browser chooses. |
+| `FT8_EARLY_DECODE_MS` | `2000` | Decode this many ms *before* the slot boundary (when the signal has ended) instead of at the boundary, so a guided reply is queued before the boundary and transmits in the very next slot rather than a parity cycle later. `0` decodes at the boundary (old behaviour). Lower it if late/slow-clock signals get clipped; raise it for more decode headroom. |
+| `FT8_DECODE_TIMING` | off | `1` logs each decode's time, captured audio length, and early-vs-boundary to the journal, for tuning `FT8_EARLY_DECODE_MS`. |
+| `FT8_TX_GRACE_MS` | `2000` | Start a transmission up to this many ms *after* the slot boundary (a small positive DT, which receivers tolerate) instead of waiting a full ~30 s parity cycle, whenever the reply is ready that late. Clamped per-send so the whole waveform still finishes before the next boundary. `0` only ever starts exactly on the boundary. |
 | `SCREEN_TITLE` | `PiRO` | Title shown in the browser tab and on the page (a link to the source, see `SOURCE_CODE_URL`). |
 | `JTTY_TX_FREQ_HZ` | `1450` | Audio frequency of JTTY's lowest tone, in Hz. The signal fills about 94 Hz above it. |
 | `JTTY_RX_LOW_HZ`, `JTTY_RX_HIGH_HZ` | `200`, `2900` | Audio range, in Hz, searched for JTTY signals. The default is the whole range the decoder supports. Two extra fixed channels at 1350 and 1650 Hz (±150 Hz) are always searched as well. A narrower range saves a little CPU. |
@@ -2105,6 +2119,7 @@ All settings are environment variables. For the systemd service they go in
 | `SSTV_FSK_ID`, `SSTV_CW_ID` | on | `off` leaves out the FSK ID or the CW ID sent after each SSTV picture. Both use `STATION_CALLSIGN`. |
 | `HELL_TONE_HZ` | `1000` | Feld-Hell's default audio tone, in Hz, for sending and receiving, until it is changed in the UI. The band frequencies the client tunes to assume the signal is at this tone. |
 | `STATION_CALLSIGN`, `STATION_GRID` | none | Your callsign and Maidenhead grid. They set the FT8 default message and guided QSO, the FreeDV Reporter report, and WSPR's callsign (WSPR transmits only a plain call of up to 6 characters). |
+| `FT8_AUTO_CQ_REPEATS` | `5` | FT8/FT4 **Auto** mode: when you call CQ with Auto on and nobody answers, how many times the server re-sends your CQ automatically (parity-correct, every second slot). Your first CQ isn't counted; after this many unanswered auto-CQs it stops and leaves Auto armed for your next call. `0` = watch only, no auto-repeat. |
 | `WSPR_GRID` | `STATION_GRID` | The Maidenhead grid WSPR sends (the first 4 characters) and reports to wsprnet.org (4 or 6 characters, such as `QF22` or `QF22LB`). |
 | `WSPR_UPLOAD` | on | `off` stops WSPR spots going to wsprnet.org. Uploading also needs `STATION_CALLSIGN` and a grid. |
 | `WSPR_UNATTENDED` | off | `on` makes WSPR receive by itself 10 minutes after the last browser leaves: the radio goes to the WSPR frequency of its band (USB, DATA on), and goes back to how it was when a browser connects. It never transmits then. See [WSPR](#wspr). |

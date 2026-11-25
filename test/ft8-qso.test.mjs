@@ -261,6 +261,30 @@ check(trimMessageGrid('CQ DX VK2IO QF56MC') === 'CQ DX VK2IO QF56', 'trims a 6-c
   check(seq.engage({ msg: 'VK2IO VK3XU R-05', freq: 1000 }) === null, "engage() on an ack-report addressed to us (not a fresh CQ reply) returns null — that's ingestDecodes()'s job mid-QSO, not a fresh engagement");
 }
 
+// --- Ft8QsoSequencer: ingestDecodes() while seeking picks report OR grid ---
+
+{
+  const seq = new Ft8QsoSequencer({ myCall: 'VK2IO', myGrid: 'QF56' });
+  seq.noteOwnCqSent();
+  // stronger report-form answer + weaker grid-form answer in the same slot:
+  // pick the stronger (report-form), matching the server's cq-watch selection.
+  const step = seq.ingestDecodes([
+    { msg: 'VK2IO K1ABC -02', freq: 900, snr: 10 },
+    { msg: 'VK2IO K2XYZ QF10', freq: 1500, snr: 3 },
+  ]);
+  check(step !== null && step.txText === 'K1ABC VK2IO R+10' && seq.getQso().partnerCall === 'K1ABC',
+    `seeking picks the strongest answer (report-form here) like the server, got ${JSON.stringify(step)}`);
+}
+
+// --- Ft8QsoSequencer: engage() a report-form reply to us (grid/TX1 skipped) ---
+
+{
+  const seq = new Ft8QsoSequencer({ myCall: 'VK2IO', myGrid: 'QF56' });
+  const step = seq.engage({ msg: 'VK2IO KA0BOJ +02', freq: 900, snr: 5 });
+  check(step !== null && step.txText === 'KA0BOJ VK2IO R+05', `engage() on a plain-report reply to us stages our R-report (not the raw text), got ${JSON.stringify(step)}`);
+  check(seq.getQso() && seq.getQso().partnerCall === 'KA0BOJ' && seq.getQso().role === 'caller' && seq.getQso().step === 'awaiting-final', 'a report-form reply starts a caller-role QSO at awaiting-final (awaiting their RR73)');
+}
+
 // --- reset() ---
 
 {

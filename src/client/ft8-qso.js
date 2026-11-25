@@ -271,6 +271,7 @@ export class Ft8QsoSequencer {
     const parsed = parseFt8Message(decoded.msg);
     if (parsed.isCq && parsed.cqCall) return this._startFromCq(parsed, decoded);
     if (parsed.toCall === this.myCall && parsed.fromCall && parsed.grid) return this._startFromReply(parsed, decoded);
+    if (parsed.toCall === this.myCall && parsed.report != null && parsed.fromCall && parsed.fromCall !== this.myCall && CALLSIGN_RE.test(parsed.fromCall)) return this._startFromReport(parsed, decoded);
     return null;
   }
 
@@ -301,12 +302,16 @@ export class Ft8QsoSequencer {
     }
 
     if (this._seeking) {
+      // Pick the strongest answer to our CQ, grid-form OR report-form (grid/TX1
+      // off), so the browser selects the SAME station the server's cq-watch
+      // does (sorted is SNR-descending). Otherwise the two sequencers can track
+      // different QSOs when both forms answer in one slot.
       for (const decoded of sorted) {
         if (typeof decoded.msg !== 'string') continue;
         const parsed = parseFt8Message(decoded.msg);
-        if (parsed.toCall === this.myCall && parsed.fromCall && parsed.grid) {
-          return this._startFromReply(parsed, decoded);
-        }
+        if (parsed.toCall !== this.myCall || !parsed.fromCall || parsed.fromCall === this.myCall) continue;
+        if (parsed.grid) return this._startFromReply(parsed, decoded);
+        if (parsed.report != null && CALLSIGN_RE.test(parsed.fromCall)) return this._startFromReport(parsed, decoded);
       }
     }
     return null;
@@ -356,6 +361,19 @@ export class Ft8QsoSequencer {
       `${parsed.fromCall} ${this.myCall} ${formatReport(decoded.snr)}`,
       decoded.freq,
       `${parsed.fromCall} answered your CQ — send their signal report, then watch for their acknowledgement.`
+    );
+  }
+  _startFromReport(parsed, decoded) {
+    // They answered/called us with a signal report instead of a grid (grid or
+    // TX1 disabled), e.g. "US THEM -02": reply with our R-report and await
+    // their RR73 -- i.e. the caller role at awaiting-final.
+    this.qso = { partnerCall: parsed.fromCall, role: 'caller', step: 'awaiting-final', freqHz: decoded.freq,
+      grid: null, reportSent: formatReport(decoded.snr), reportRcvd: parsed.report, startedAt: Date.now() };
+    this._seeking = false;
+    return this._suggestion(
+      `${parsed.fromCall} ${this.myCall} R${formatReport(decoded.snr)}`,
+      decoded.freq,
+      `${parsed.fromCall} answered with a signal report — send your R-report, then watch for their RR73.`
     );
   }
 

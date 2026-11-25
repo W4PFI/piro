@@ -42,6 +42,12 @@ class StubControlServer extends EventEmitter {
     // Unset by default (null), same as the real thing before STATION_CALLSIGN
     // is configured; tests that need spotting enabled set these explicitly.
     this.state = { stationCallsign: null, stationGrid: null, frequency: null };
+    // Records Ft8Bridge#_syncAutoState pushes (arm / disarm / advance), the
+    // way the real ControlServer#setFt8AutoState broadcasts EVENT.FT8_AUTO_STATE.
+    this.autoStates = [];
+  }
+  setFt8AutoState(auto) {
+    this.autoStates.push(auto);
   }
   broadcastJsonEvent(type, data) {
     this.broadcasts.push({ type, data });
@@ -89,6 +95,18 @@ class StubSlotClock extends EventEmitter {
   }
   nextSlotStart() {
     return this._next;
+  }
+  msUntilNextSlot() {
+    return this._msUntilNext ?? this.slotMs;
+  }
+  // Parity API mirrors the real SlotClock, so send() can schedule a reply
+  // against a replySlotMs (the server-side auto path uses it).
+  slotParity(slotStartMs) {
+    return ((Math.floor(slotStartMs / this.slotMs) % 2) + 2) % 2;
+  }
+  nextSlotStartWithParity(parity) {
+    const start = this.nextSlotStart();
+    return this.slotParity(start) === parity ? start : start + this.slotMs;
   }
   setSlotMs(slotMs) {
     this.setSlotMsCalls.push(slotMs);
@@ -293,6 +311,160 @@ async function run() {
     worker.reply({ type: 'decode-error', requestId: worker.posted[0].requestId, error: 'boom' });
     const errEvents = controlServer.broadcasts.filter((b) => b.type === EVENT.RIG_ERROR);
     check(errEvents.length === 1 && /boom/.test(errEvents[0].data.message), 'a decode-error worker reply broadcasts a RIG_ERROR event instead of throwing');
+    bridge.stop();
+  }
+
+  // --- server-side Auto: a decode resolving after deactivation must not TX ---
+  {
+    // Codex P1: when the radio is handed to a LAN client mid-slot
+    // (ControlServer.pause -> _stopEverything -> 'ft8-active' false), an
+    // in-flight decode that resolves AFTER deactivation must not queue an
+    // automatic reply and key the radio after the handover.
+    const controlServer = new StubControlServer();
+    controlServer.state.stationCallsign = 'W4PFI';
+    const { bridge, audioBridge, slotClock, worker } = makeBridge({ controlServer });
+    bridge.setActive(true);
+    // Arm Auto as the caller, awaiting VK3TR's signal report.
+    controlServer.emit('ft8-arm-auto', { partnerCall: 'VK3TR', role: 'caller', step: 'awaiting-report', freqHz: 1500 });
+    check(controlServer.autoStates.at(-1).armed === true, 'arming via ft8-arm-auto reflects an armed auto-state');
+    // A slot captures audio and posts a decode request...
+    audioBridge.capture.emit('data', Buffer.alloc(4800 * 2));
+    slotClock.fireBoundary(15000);
+    check(worker.posted.length === 1, 'the armed slot posts a decode request to the worker');
+    // ...but the radio is handed off (deactivated) before the decode resolves.
+    controlServer.emit('ft8-active', false);
+    check(controlServer.autoStates.at(-1).armed !== true && controlServer.autoStates.at(-1).operatorOff === true,
+      'deactivating FT8 disarms the auto-sequencer and signals operator-off to the browsers');
+    // The late decode carries VK3TR's report -- which WOULD advance the QSO.
+    worker.reply({
+      type: 'decoded',
+      requestId: worker.posted[0].requestId,
+      messages: [{ freq: 1500, dt: 0, snr: -5, msg: 'W4PFI VK3TR -05' }],
+      discoveredCallsigns: [],
+    });
+    await flush();
+    const scheduled = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled');
+    check(scheduled.length === 0, 'a decode resolving after FT8 deactivation does NOT queue an automatic reply');
+    bridge.stop();
+  }
+
+  {
+    // Codex P1: a reply already queued when FT8 is deactivated must be cancelled,
+    // not transmitted after the radio is handed to a LAN client.
+    const { bridge, slotClock, controlServer } = makeBridge();
+    bridge.setActive(true);
+    bridge.send('VK3XU W4PFI -05', {}).catch(() => {}); // scheduled for the next boundary
+    check(controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled').length === 1, 'the reply is scheduled for the next boundary');
+    bridge.setActive(false); // radio handed over before the boundary
+    check(controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'cancelled').length === 1, 'deactivating FT8 cancels the queued transmission');
+    slotClock.fireBoundary(30000);
+    await flush();
+    check(controlServer.pttCalls.filter((p) => p === true).length === 0, 'PTT is never keyed after deactivation (radio handed over)');
+    bridge.stop();
+  }
+
+  {
+    // Control for the above: the SAME decode, while STILL active, DOES queue
+    // the R-report -- so the deactivation guard is what suppresses the reply,
+    // not a broken setup.
+    const controlServer = new StubControlServer();
+    controlServer.state.stationCallsign = 'W4PFI';
+    const { bridge, audioBridge, slotClock, worker } = makeBridge({ controlServer });
+    bridge.setActive(true);
+    controlServer.emit('ft8-arm-auto', { partnerCall: 'VK3TR', role: 'caller', step: 'awaiting-report', freqHz: 1500 });
+    audioBridge.capture.emit('data', Buffer.alloc(4800 * 2));
+    slotClock.fireBoundary(15000);
+    worker.reply({
+      type: 'decoded',
+      requestId: worker.posted[0].requestId,
+      messages: [{ freq: 1500, dt: 0, snr: -5, msg: 'W4PFI VK3TR -05' }],
+      discoveredCallsigns: [],
+    });
+    await flush();
+    const scheduled = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled');
+    check(scheduled.length === 1 && scheduled[0].data.message === 'VK3TR W4PFI R-05',
+      'while active, the armed auto-sequencer queues the R-report reply');
+    bridge.stop();
+  }
+
+  {
+    // Codex P2: the server auto path must lock transmit parity to the FIRST
+    // slot the partner was heard in, like the manual ft8ReplySlotMs lock. A
+    // later decode that wanders into the opposite parity must NOT flip which
+    // slot we transmit in. (The StubSlotClock schedules parity 1 at 15000 and
+    // parity 0 at 30000, so a flip is visible as a changed sendAtMs.)
+    const controlServer = new StubControlServer();
+    controlServer.state.stationCallsign = 'W4PFI';
+    const { bridge, audioBridge, slotClock, worker } = makeBridge({ controlServer });
+    bridge.setActive(true);
+    controlServer.emit('ft8-arm-auto', { partnerCall: 'VK3TR', role: 'caller', step: 'awaiting-report', freqHz: 1500 });
+    // First decode in an even-parity slot (slotStartMs 0): report -> R-report.
+    audioBridge.capture.emit('data', Buffer.alloc(4800 * 2));
+    slotClock.fireBoundary(15000); // decodes slot 0 (parity 0)
+    worker.reply({ type: 'decoded', requestId: worker.posted.at(-1).requestId,
+      messages: [{ freq: 1500, dt: 0, snr: -5, msg: 'W4PFI VK3TR -05' }], discoveredCallsigns: [] });
+    await flush();
+    let sched = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled');
+    check(sched.length === 1 && sched[0].data.sendAtMs === 15000,
+      'the first auto-reply locks transmit parity to the slot the partner was heard in');
+    // A later RR73 decode arrives in the OPPOSITE parity (slotStartMs 15000).
+    audioBridge.capture.emit('data', Buffer.alloc(4800 * 2));
+    slotClock.fireBoundary(30000); // decodes slot 15000 (parity 1)
+    worker.reply({ type: 'decoded', requestId: worker.posted.at(-1).requestId,
+      messages: [{ freq: 1500, dt: 0, snr: -5, msg: 'W4PFI VK3TR RR73' }], discoveredCallsigns: [] });
+    await flush();
+    sched = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled');
+    check(sched.length === 2 && sched[1].data.message === 'VK3TR W4PFI 73' && sched[1].data.sendAtMs === 15000,
+      'a later opposite-parity decode does NOT flip our transmit slot (parity stays locked)');
+    bridge.stop();
+  }
+
+  {
+    // Codex P1: disarming (Auto off / band change) must cancel a queued reply,
+    // so the boundary handler doesn't transmit it (possibly on a new band).
+    const controlServer = new StubControlServer();
+    controlServer.state.stationCallsign = 'W4PFI';
+    const { bridge, slotClock } = makeBridge({ controlServer });
+    bridge.setActive(true);
+    bridge.send('K1ABC W4PFI RR73', {}).catch(() => {});
+    check(controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled').length === 1, 'a reply is queued');
+    controlServer.emit('ft8-disarm-auto', { operatorOff: true });
+    check(controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'cancelled').length === 1, 'disarming Auto cancels the queued reply');
+    slotClock.fireBoundary(15000);
+    await flush();
+    check(controlServer.pttCalls.filter((p) => p === true).length === 0, 'the cancelled reply never keys PTT');
+    bridge.stop();
+  }
+
+  {
+    // Codex: the decode of our OWN transmit slot's trailing audio must not drive
+    // the auto-sequencer -- no re-CQ, and the parity lock is not seeded from our
+    // TX slot. The re-CQ fires on the real listen slot in the correct parity.
+    const controlServer = new StubControlServer();
+    controlServer.state.stationCallsign = 'W4PFI';
+    const { bridge, audioBridge, slotClock, worker } = makeBridge({ controlServer });
+    bridge.setActive(true);
+    controlServer.emit('ft8-arm-auto', { cqWatch: true, freqHz: 1500, cqText: 'CQ W4PFI EM95' });
+    // Transmit the CQ in even slot 0 (null parity -> fires at the next boundary).
+    bridge.send('CQ W4PFI EM95', {}).catch(() => {});
+    slotClock.fireBoundary(0); // CQ goes out in slot 0 -> _lastTxSlotMs = 0
+    await flush();
+    const after1 = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled').length;
+    // The trailing decode of slot 0 (our TX slot) must be skipped -> no re-CQ.
+    audioBridge.capture.emit('data', Buffer.alloc(4800 * 2));
+    slotClock.fireBoundary(15000); // decodes slot 0 (our TX slot)
+    worker.reply({ type: 'decoded', requestId: worker.posted.at(-1).requestId, messages: [], discoveredCallsigns: [] });
+    await flush();
+    const after2 = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled');
+    check(after2.length === after1, 'the decode of our own TX slot does not re-CQ');
+    // The real listen slot (odd) drives the re-CQ, in the correct (even) parity.
+    audioBridge.capture.emit('data', Buffer.alloc(4800 * 2));
+    slotClock.fireBoundary(30000); // decodes slot 15000 (a real listen slot, odd)
+    worker.reply({ type: 'decoded', requestId: worker.posted.at(-1).requestId, messages: [], discoveredCallsigns: [] });
+    await flush();
+    const after3 = controlServer.broadcasts.filter((b) => b.type === EVENT.FT8_TX_STATUS && b.data.status === 'scheduled');
+    check(after3.length === after1 + 1 && after3.at(-1).data.message === 'CQ W4PFI EM95' && after3.at(-1).data.sendAtMs === 30000,
+      're-CQ fires on the real listen slot in the first CQ\'s (even) parity, not seeded from our TX slot');
     bridge.stop();
   }
 
@@ -789,6 +961,22 @@ async function run() {
     check(bridge._rxChunks.length === 1, 'RX audio accumulates while active, as a baseline for this test');
     bridge.setVariant('FT4');
     check(bridge._rxChunks.length === 0, 'setVariant() discards RX audio buffered under the previous protocol/slot grid');
+    bridge.stop();
+  }
+
+  {
+    // Switching protocol must cancel a pending early-decode timer and clear the
+    // "decoded early" flag, so the stale timer doesn't decode the new protocol's
+    // audio on the old schedule and suppress the next boundary's full decode
+    // (losing the first receive slot after the switch).
+    const { bridge } = makeBridge();
+    bridge.setActive(true);
+    // Simulate an early decode armed mid-slot against the current (FT8) grid.
+    bridge._earlyDecodeTimer = setTimeout(() => {}, 60000);
+    bridge._slotDecoded = true;
+    bridge.setVariant('FT4');
+    check(bridge._earlyDecodeTimer === null, 'setVariant() cancels a pending early-decode timer');
+    check(bridge._slotDecoded === false, 'setVariant() resets the early-decode flag so the new grid is decoded');
     bridge.stop();
   }
 
