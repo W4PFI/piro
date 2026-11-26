@@ -6119,3 +6119,15 @@ right away** -- the point-and-click way to answer a CQ or fire off a reply.
   row selection is **flushed first** (flushPendingRowSelection), so Send uses
   the row the operator picked, not the previous composer contents.
 - Client only: app.js. Service-worker cache v156.
+
+### Scope: self-heal after a radio power-cycle (v165)
+
+The IC-7300 clears its scope waveform-data output setting when it is switched
+off and on. Its USB serial usually re-enumerates under the same device name, so
+PiRO's serial port does not always see a disconnect -- control and audio recover
+on their own, but nothing re-sent the scope-enable, so the waterfall/scope
+stayed dead until the service was restarted. A watchdog in the scope bridge now
+notices the waveform has gone silent (while not transmitting -- TX legitimately
+pauses the scope) and re-enables output, so the scope comes back by itself a few
+seconds after the radio returns. Server only (`server/scope-bridge.js`), no
+build change, so it is also in v165.
