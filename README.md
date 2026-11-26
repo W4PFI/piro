@@ -2065,6 +2065,9 @@ All settings are environment variables. For the systemd service they go in
 | `AUDIO_CHANNELS` | `1` | Number of audio channels. |
 | `TX_AUDIO_ECHO` | on | In SSB, AM, FM and FreeDV, a browser's microphone audio while transmitting is also played in every other browser, so people sharing the radio hear each other. `off` turns it off. |
 | `AUDIO_OPUS_BITRATE` | `24000` | Opus bit rate for compressed audio, in bits per second (6000 to 128000). See [Compressed audio for remote use](#compressed-audio-for-remote-use). `AUDIO_CODEC` is no longer used: each browser chooses. |
+| `FT8_DECODE_THREADS` | `2` | FT8 decoding runs across this many parallel worker threads (ft8ts `FT8DecoderPool`, one sub-band per thread, meeting after each pass, like WSJT-X 3). `2` is the measured sweet spot on a 4-core Raspberry Pi 4 — using more threads starves the main process (CI-V, audio, WebSocket) and decode actually gets slower. `1` decodes on a single worker thread (still off the main thread). FT4 is always single-threaded, as in WSJT-X. |
+| `FT8_DECODE_DEPTH` | `1` | FT8/FT4 decoding depth: `1` fast (band-pass only, WSJT-X "fast"), `2` adds OSD, `3` deep. Higher finds more weak decodes but uses more CPU. |
+| `FT8_MAX_CANDIDATES` | `80` | Maximum sync candidates ft8ts weighs per decode. Higher catches a little more on a crowded band at more CPU; lower is faster. |
 | `SCREEN_TITLE` | `PiRO` | Title shown in the browser tab and on the page (a link to the source, see `SOURCE_CODE_URL`). |
 | `JTTY_TX_FREQ_HZ` | `1450` | Audio frequency of JTTY's lowest tone, in Hz. The signal fills about 94 Hz above it. |
 | `JTTY_RX_LOW_HZ`, `JTTY_RX_HIGH_HZ` | `200`, `2900` | Audio range, in Hz, searched for JTTY signals. The default is the whole range the decoder supports. Two extra fixed channels at 1350 and 1650 Hz (±150 Hz) are always searched as well. A narrower range saves a little CPU. |
