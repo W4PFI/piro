@@ -89,6 +89,8 @@ function check(cond, msg) {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function testCenterModeRoundTrip() {
   console.log('\n-- center-mode line: broadcast + client-side decode round-trip --');
   const civ = new StubCivDriver();
@@ -216,11 +218,81 @@ async function testStartStop() {
   await server.close();
 }
 
+async function testWatchdogReEnablesAfterStall() {
+  console.log('\n-- watchdog re-enables scope output after the waveform stalls --');
+  const civ = new StubCivDriver();
+  const server = new ControlServer({ civ, port: 0 });
+  await server.listen();
+  const bridge = new ScopeBridge({ civ, controlServer: server, staleMs: 40, checkMs: 15 });
+  await bridge.start();
+  check(civ.enableCalls === 1, 'start() enabled scope output once');
+  // No lines arrive: past the stale window the watchdog re-enables output.
+  await sleep(140);
+  check(civ.enableCalls >= 2, 'watchdog re-enabled scope output after the stall');
+  await bridge.stop();
+  await server.close();
+}
+
+async function testWatchdogQuietWhileStreaming() {
+  console.log('\n-- watchdog does NOT re-enable while lines keep arriving --');
+  const civ = new StubCivDriver();
+  const server = new ControlServer({ civ, port: 0 });
+  await server.listen();
+  const bridge = new ScopeBridge({ civ, controlServer: server, staleMs: 40, checkMs: 15 });
+  await bridge.start();
+  const line = { mode: SCOPE_MODE.CENTER, mainSub: 0, centerFreq: 14000000, span: 25000, points: Buffer.from([1]) };
+  const t = setInterval(() => civ.emit('scope-line', line), 15); // stay fresh
+  await sleep(130);
+  clearInterval(t);
+  check(civ.enableCalls === 1, 'no re-enable while the waveform is flowing');
+  await bridge.stop();
+  await server.close();
+}
+
+async function testWatchdogSkipsWhileTransmitting() {
+  console.log('\n-- watchdog does NOT re-enable while transmitting, recovers after --');
+  const civ = new StubCivDriver();
+  const server = new ControlServer({ civ, port: 0 });
+  await server.listen();
+  const bridge = new ScopeBridge({ civ, controlServer: server, staleMs: 40, checkMs: 15 });
+  await bridge.start();
+  server.state.ptt = true; // keyed: the radio legitimately stops the scope
+  await sleep(140);
+  check(civ.enableCalls === 1, 'no re-enable while keyed (TX pauses the scope)');
+  server.state.ptt = false; // unkeyed: a continued silence is now a real stall
+  await sleep(140);
+  check(civ.enableCalls >= 2, 're-enabled once the stall outlasts TX');
+  await bridge.stop();
+  await server.close();
+}
+
+async function testWatchdogSkipsWhileCwKeying() {
+  console.log('\n-- watchdog respects the aggregate transmitting guard (CW keyer) --');
+  const civ = new StubCivDriver();
+  const server = new ControlServer({ civ, port: 0 });
+  await server.listen();
+  const bridge = new ScopeBridge({ civ, controlServer: server, staleMs: 40, checkMs: 15 });
+  await bridge.start();
+  // CW text/paddle keys the radio without PTT; server.transmitting still reports it.
+  server.state.cwKeying = true;
+  await sleep(140);
+  check(civ.enableCalls === 1, 'no re-enable while the CW keyer is sending (ptt stays false)');
+  server.state.cwKeying = false;
+  await sleep(140);
+  check(civ.enableCalls >= 2, 're-enabled once the CW send ends');
+  await bridge.stop();
+  await server.close();
+}
+
 async function run() {
   await testCenterModeRoundTrip();
   await testFixedModeRoundTrip();
   await testAudioAndScopeCoexist();
   await testStartStop();
+  await testWatchdogReEnablesAfterStall();
+  await testWatchdogQuietWhileStreaming();
+  await testWatchdogSkipsWhileTransmitting();
+  await testWatchdogSkipsWhileCwKeying();
 
   if (failures > 0) {
     console.error(`\n${failures} test(s) failed.`);
